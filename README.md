@@ -1,161 +1,98 @@
-# NestJS JWT Auth App
+<p align="center">
+  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
+</p>
 
-JWT authentication + products + cart with PostgreSQL, TypeORM migrations, and custom class-validator validators.
+[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
+[circleci-url]: https://circleci.com/gh/nestjs/nest
 
-## Stack
+  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
+    <p align="center">
+<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
+<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
+<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
+<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
+<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
+<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
+<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
+  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
+    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
+  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
+</p>
+  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
+  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
 
-- **NestJS** — framework
-- **TypeORM** — ORM + migrations
-- **PostgreSQL** — database
-- **Passport + JWT** — authentication
-- **bcryptjs** — password hashing
-- **Multer** — file uploads (local disk)
-- **class-validator / class-transformer** — DTO validation & serialization
+## Description
 
----
+[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
-## Quick Start
-
-```bash
-# 1. Install
-npm install
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env with your DB credentials and a strong JWT_SECRET
-
-# 3. Create the database
-createdb nestjs_auth
-# or via psql: CREATE DATABASE nestjs_auth;
-
-# 4. Run migrations
-npm run migration:run
-
-# 5. Start dev server
-npm run start:dev
-```
-
----
-
-## Project Structure
-
-```
-src/
-├── auth/
-│   ├── decorators/        @CurrentUser, @Public, @Roles
-│   ├── dto/               register, login, update-profile
-│   ├── guards/            JwtAuthGuard (global), RolesGuard
-│   ├── strategies/        jwt.strategy.ts
-│   ├── validators/        is-already-registered, validate-credentials
-│   ├── auth.controller.ts
-│   ├── auth.module.ts
-│   └── auth.service.ts
-├── cart/
-│   ├── dto/               add-to-cart, update-cart-item
-│   ├── entities/          cart.entity, cart-item.entity
-│   ├── cart.controller.ts
-│   ├── cart.module.ts
-│   └── cart.service.ts
-├── config/
-│   └── data-source.ts     TypeORM CLI DataSource
-├── migrations/
-│   ├── 1700000000000-CreateUsersTable.ts
-│   └── 1700000000001-CreateProductsAndCart.ts
-├── products/
-│   ├── dto/               create-product, update-product
-│   ├── entities/          product.entity
-│   ├── products.controller.ts
-│   ├── products.module.ts
-│   └── products.service.ts
-├── users/
-│   ├── entities/          user.entity
-│   ├── users.module.ts
-│   └── users.service.ts
-├── app.module.ts
-└── main.ts
-uploads/
-├── avatars/               user profile images
-└── products/              product images
-```
-
----
-
-## API Reference
-
-### Auth
-
-| Method | Route | Auth | Description |
-|--------|-------|------|-------------|
-| POST | `/api/auth/register` | ❌ | Register (email, password, firstName, lastName) |
-| POST | `/api/auth/login` | ❌ | Login → returns JWT |
-| POST | `/api/auth/logout` | ✅ | Client-side logout |
-| GET | `/api/auth/me` | ✅ | Current user |
-| GET | `/api/auth/profile` | ✅ | Current user profile |
-| PUT | `/api/auth/profile` | ✅ | Update firstName / lastName |
-| POST | `/api/auth/profile/image` | ✅ | Upload profile image (multipart `image`) |
-
-### Products
-
-| Method | Route | Auth | Description |
-|--------|-------|------|-------------|
-| GET | `/api/products` | ❌ | List all products |
-| GET | `/api/products/:id` | ❌ | Get product by id |
-| POST | `/api/products` | admin/manager | Create product |
-| PUT | `/api/products/:id` | admin/manager | Update product |
-| POST | `/api/products/:id/images` | admin/manager | Upload images (multipart `images[]`) |
-| DELETE | `/api/products/:id/images/:filename` | admin/manager | Remove an image |
-| DELETE | `/api/products/:id` | admin | Delete product |
-
-### Cart (all require auth)
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/api/cart` | Get cart with items + `totalAmount` |
-| POST | `/api/cart/items` | Add item `{ productId, quantity }` — increments if already in cart |
-| PUT | `/api/cart/items/:itemId` | Update quantity `{ quantity }` |
-| DELETE | `/api/cart/items/:itemId` | Remove item |
-| DELETE | `/api/cart` | Clear entire cart |
-
-### Static files
-
-Uploaded images are served at:
-- `http://localhost:3000/uploads/avatars/<filename>`
-- `http://localhost:3000/uploads/products/<filename>`
-
----
-
-## Roles
-
-| Role | Value |
-|------|-------|
-| User | `user` |
-| Manager | `manager` |
-| Admin | `admin` |
-
-Assign roles directly in the DB or via a seed script. Protect routes:
-
-```ts
-@UseGuards(RolesGuard)
-@Roles(UserRole.ADMIN)
-@Get('admin-only')
-adminOnly() { ... }
-```
-
----
-
-## Custom Validators
-
-- **`IsAlreadyRegistered`** — checks DB for duplicate email on register
-- **`ValidateCredentials`** — bcrypt-checks password against stored hash on login
-
-Both are `@Injectable()` and use `useContainer()` in `main.ts` to access NestJS DI.
-
----
-
-## Migration Commands
+## Project setup
 
 ```bash
-npm run migration:run      # run pending migrations
-npm run migration:revert   # revert last migration
-npm run migration:generate -- src/migrations/MyMigration  # generate from entity diff
+$ npm install
 ```
+
+## Compile and run the project
+
+```bash
+# development
+$ npm run start
+
+# watch mode
+$ npm run start:dev
+
+# production mode
+$ npm run start:prod
+```
+
+## Run tests
+
+```bash
+# unit tests
+$ npm run test
+
+# e2e tests
+$ npm run test:e2e
+
+# test coverage
+$ npm run test:cov
+```
+
+## Deployment
+
+When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+
+If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+
+```bash
+$ npm install -g @nestjs/mau
+$ mau deploy
+```
+
+With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+
+## Resources
+
+Check out a few resources that may come in handy when working with NestJS:
+
+- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
+- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
+- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
+- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
+- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
+- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
+- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
+- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+
+## Support
+
+Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+
+## Stay in touch
+
+- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
+- Website - [https://nestjs.com](https://nestjs.com/)
+- Twitter - [@nestframework](https://twitter.com/nestframework)
+
+## License
+
+Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
