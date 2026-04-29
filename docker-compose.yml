@@ -1,0 +1,32 @@
+services:
+  app:
+    build: 
+      context: .
+      dockerfile: ./.docker/Dockerfile
+    container_name: optpasts_app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT}:${APP_PORT}"
+    depends_on:
+      - db
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run start:dev
+  db:
+    image: postgres:15-alpine
+    container_name: optparts_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
