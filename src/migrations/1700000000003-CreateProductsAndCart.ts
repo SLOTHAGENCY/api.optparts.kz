@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner, Table, TableForeignKey } from 'typeorm';
 
-export class CreateProductsAndCart1700000000001 implements MigrationInterface {
-  name = 'CreateProductsAndCart1700000000001';
+export class CreateProductsAndCart1700000000003 implements MigrationInterface {
+  name = 'CreateProductsAndCart1700000000003';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Products

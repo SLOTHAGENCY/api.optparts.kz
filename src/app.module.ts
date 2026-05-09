@@ -8,11 +8,23 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
 import { CartModule } from './cart/cart.module';
+import { DocsModule } from './docs/docs.module';
+import { AddressesModule } from './addresses/addresses.module';
+import { Address } from './addresses/entities/address.entity';
 import { User } from './users/entities/user.entity';
 import { Product } from './products/entities/product.entity';
 import { Cart } from './cart/entities/cart.entity';
 import { CartItem } from './cart/entities/cart-item.entity';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { CategoriesModule } from './categories/categories.module';
+import { BrandsModule } from './brands/brands.module';
+import { OrdersModule } from './orders/orders.module';
+import { Category } from './categories/entities/category.entity';
+import { Brand } from './brands/entities/brand.entity';
+import { ProductImage } from './products/entities/product-image.entity';
+import { ProductProperty } from './products/entities/product-property.entity';
+import { Order } from './orders/entities/order.entity';
+import { OrderItem } from './orders/entities/order-item.entity';
 
 @Module({
   imports: [
@@ -24,7 +36,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
         username: process.env.DB_USERNAME || 'postgres',
         password: process.env.DB_PASSWORD || 'postgres',
         database: process.env.DB_NAME || 'nestjs_auth',
-        entities: [User, Product, Cart, CartItem],
+        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem],
         migrations: ['dist/migrations/*.js'],
         synchronize: process.env.NODE_ENV === 'development',
         logging: process.env.NODE_ENV === 'development',
@@ -34,10 +46,15 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
       rootPath: join(__dirname, '..', 'uploads'),
       serveRoot: '/uploads',
     }),
+    AddressesModule,
     AuthModule,
     UsersModule,
     ProductsModule,
     CartModule,
+    DocsModule,
+    CategoriesModule,
+    BrandsModule,
+    OrdersModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

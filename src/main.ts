@@ -7,9 +7,11 @@ import { AppModule } from './app.module';
 dotenv.config();
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
-  });
+  const app = await NestFactory.create(AppModule);
+
+  // const app = await NestFactory.create(AppModule, {
+  //   logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+  // });
 
   // Fix: allows class-validator to use NestJS DI (required for custom validators)
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
