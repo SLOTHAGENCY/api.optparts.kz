@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'api.optparts.kz',
       script: 'dist/main.js',
-      instances: 'max',        // one process per CPU core
+      instances: 1,        // one process per CPU core
       exec_mode: 'cluster',    // load balance across instances
       watch: false,
       env: {
