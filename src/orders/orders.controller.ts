@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Body,
+  Controller, Get, Post, Patch, Body, Put, Delete,
   Param, HttpCode, HttpStatus, ParseUUIDPipe, UseGuards,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
@@ -9,6 +9,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { User, UserRole } from '../users/entities/user.entity';
+import { UpsertCommentDto } from './dto/upsert-comment.dto';
 
 @Controller('orders')
 @UseGuards(RolesGuard)
@@ -56,5 +57,27 @@ export class OrdersController {
   @HttpCode(HttpStatus.OK)
   cancel(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
     return this.ordersService.cancel(id, user.id);
+  }
+
+  /** PUT /orders/:id/comment — add or update manager comment */
+  @Roles(UserRole.MANAGER, UserRole.ADMIN)
+  @Put(':id/comment')
+  upsertComment(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpsertCommentDto,
+  ) {
+    return this.ordersService.upsertComment(id, user.id, dto.comment);
+  }
+
+  /** DELETE /orders/:id/comment — remove manager's own comment */
+  @Roles(UserRole.MANAGER, UserRole.ADMIN)
+  @Delete(':id/comment')
+  @HttpCode(HttpStatus.OK)
+  deleteComment(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.ordersService.deleteComment(id, user.id);
   }
 }

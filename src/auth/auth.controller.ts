@@ -65,7 +65,13 @@ export class AuthController {
   /** PUT /auth/profile */
   @Put('profile')
   async updateProfile(@CurrentUser() user: User, @Body() dto: UpdateProfileDto) {
-    const updated = await this.usersService.update(user.id, dto);
+    dto.currentUserId = user.id;  // ← validator reads this to allow same-user email
+
+    const updated = await this.usersService.update(user.id, {
+      ...(dto.email && { email: dto.email }),
+      ...(dto.firstName && { firstName: dto.firstName }),
+      ...(dto.lastName && { lastName: dto.lastName }),
+    });
     return { message: 'Profile updated successfully.', user: updated };
   }
 
@@ -86,14 +92,16 @@ export class AuthController {
         }
         cb(null, true);
       },
-      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+      limits: { fileSize: 5 * 1024 * 1024 },
     }),
   )
+  
   async uploadProfileImage(
     @CurrentUser() user: User,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    const updated = await this.usersService.update(user.id, { profileImage: file.filename });
+    const filepath = `/uploads/avatars/${file.filename}`;  // ← full accessible path
+    const updated = await this.usersService.update(user.id, { profileImage: filepath });
     return { message: 'Profile image updated.', user: updated };
   }
 }

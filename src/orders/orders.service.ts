@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order, OrderStatus, OrderStatusLabel } from './entities/order.entity';
@@ -86,5 +86,24 @@ export class OrdersService {
 
   private withLabel(order: Order) {
     return { ...order, statusLabel: OrderStatusLabel[order.status] };
+  }
+
+  async upsertComment(orderId: string, managerId: string, comment: string): Promise<any> {
+    const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found.');
+    order.managerComment = comment;
+    order.commentedBy = managerId;
+    return this.withLabel(await this.orderRepo.save(order));
+  }
+
+  async deleteComment(orderId: string, managerId: string): Promise<any> {
+    const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found.');
+    if (order.commentedBy !== managerId) {
+      throw new ForbiddenException('You can only delete your own comment.');
+    }
+    order.managerComment = null;
+    order.commentedBy = null;
+    return this.withLabel(await this.orderRepo.save(order));
   }
 }

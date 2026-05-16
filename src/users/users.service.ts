@@ -36,7 +36,10 @@ export class UsersService {
     return this.usersRepository.save(user);
   }
 
-  async update(id: string, data: Partial<Pick<User, 'firstName' | 'lastName' | 'profileImage'>>): Promise<User> {
+  async update(
+    id: string,
+    data: Partial<Pick<User, 'firstName' | 'lastName' | 'profileImage' | 'email'>>,
+  ): Promise<User> {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('User not found.');
     Object.assign(user, data);

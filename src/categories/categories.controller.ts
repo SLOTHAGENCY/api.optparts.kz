@@ -12,14 +12,23 @@ import { UserRole } from '../users/entities/user.entity';
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
+  /** GET /categories/tree — nested tree (root → children → grandchildren) */
+  @Public() @Get('tree')
+  getTree() { return this.categoriesService.findTree(); }
+
+  /** GET /categories — flat list of all categories */
   @Public() @Get()
   findAll() { return this.categoriesService.findAll(); }
 
   @Public() @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) { return this.categoriesService.findById(id); }
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return this.categoriesService.findById(id);
+  }
 
   @Roles(UserRole.ADMIN, UserRole.MANAGER) @Post() @HttpCode(HttpStatus.CREATED)
-  create(@Body() dto: CreateCategoryDto) { return this.categoriesService.create(dto); }
+  create(@Body() dto: CreateCategoryDto) {
+    return this.categoriesService.create(dto);
+  }
 
   @Roles(UserRole.ADMIN, UserRole.MANAGER) @Put(':id')
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCategoryDto) {
@@ -27,5 +36,7 @@ export class CategoriesController {
   }
 
   @Roles(UserRole.ADMIN) @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT)
-  delete(@Param('id', ParseUUIDPipe) id: string) { return this.categoriesService.delete(id); }
+  delete(@Param('id', ParseUUIDPipe) id: string) {
+    return this.categoriesService.delete(id);
+  }
 }

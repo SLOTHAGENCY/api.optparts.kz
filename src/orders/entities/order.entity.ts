@@ -47,6 +47,12 @@ export class Order {
   @Column({ type: 'varchar', default: OrderStatus.NEW })
   status: OrderStatus;
 
+  @Column({ type: 'text', nullable: true, default: null })
+  managerComment: string | null;
+
+  @Column({ nullable: true, default: null })
+  commentedBy: string | null;  // stores manager userId
+
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   totalAmount: number;
 
