@@ -95,7 +95,6 @@ export class AuthController {
       limits: { fileSize: 5 * 1024 * 1024 },
     }),
   )
-  
   async uploadProfileImage(
     @CurrentUser() user: User,
     @UploadedFile() file: Express.Multer.File,

@@ -47,7 +47,6 @@ export class User {
   updatedAt: Date;
 
   @BeforeInsert()
-  @BeforeUpdate()
   async hashPassword() {
     if (this.password && !this.password.startsWith('$2')) {
       const salt = await bcrypt.genSalt(10);
