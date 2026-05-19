@@ -37,6 +37,8 @@ tags:
     description: User delivery addresses — one can be marked as main
   - name: Orders
     description: Place and manage orders with locked-in prices
+  - name: Parts
+    description: External parts search via Rossko API
 
 components:
   securitySchemes:
@@ -345,6 +347,92 @@ components:
         updatedAt:
           type: string
           format: date-time
+
+    # ─── Rossko ──────────────────────────────────────────────────────────────
+    NormalizedStock:
+      type: object
+      properties:
+        id:
+          type: string
+          example: HST132904415
+        price:
+          type: number
+          example: 5297
+        count:
+          type: integer
+          example: 1
+        multiplicity:
+          type: integer
+          example: 1
+        delivery:
+          type: integer
+          example: 0
+          description: Delivery time in days (0 = today)
+        description:
+          type: string
+          example: Астана пр. Акжол 30
+        deliveryStart:
+          type: string
+          nullable: true
+          example: "2026-05-20T09:20:00"
+        deliveryEnd:
+          type: string
+          nullable: true
+          example: "2026-05-20T09:50:00"
+
+    NormalizedProduct:
+      type: object
+      properties:
+        guid:
+          type: string
+          example: NSII0018457907
+        sku:
+          type: string
+          example: IF0118K
+        name:
+          type: string
+          example: Фильтр салона Угольный
+        brand:
+          type: string
+          example: GREEN FILTER
+        price:
+          type: number
+          example: 5297
+          description: Lowest price across all stocks
+        images:
+          type: array
+          items: {}
+          example: []
+        properties:
+          type: array
+          items: {}
+          example: []
+        category:
+          nullable: true
+          example: null
+        stocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/NormalizedStock'
+
+    PartsSearchResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        text:
+          type: string
+          example: Фильтр
+          description: Search query echoed back from the API
+        total:
+          type: integer
+          example: 8
+          description: Total number of unique parts found
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/NormalizedProduct'
 
     # ─── Errors ───────────────────────────────────────────────────────────────
     ValidationError:
@@ -1437,6 +1525,81 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NotFoundError'
+  
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PARTS (ROSSKO)
+  # ═══════════════════════════════════════════════════════════════════════════
+  /parts/search:
+    get:
+      tags: [Parts]
+      summary: Поиск запчастей через внешний каталог Rossko API
+      description: |
+        Выполняет поиск через SOAP API Rossko и возвращает 
+        результаты, приведённые к единому формату сущности 
+        товара.
+
+        Каждый результат содержит все доступные остатки 
+        по складам с ценами и сроками доставки.
+
+        Результаты дедуплицируются по `guid` — одна и та же 
+        запчасть, встречающаяся в нескольких родительских 
+        записях, возвращается только один раз.
+
+        Поле price содержит минимальную доступную цену среди 
+        всех складов. Полная информация по ценам для каждого 
+        склада находится в поле `stocks`
+      security: []
+      parameters:
+        - in: query
+          name: text
+          required: true
+          schema:
+            type: string
+          example: Фильтр
+          description: Part name, number, or keyword to search for
+      responses:
+        '200':
+          description: Parts found and normalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartsSearchResult'
+              example:
+                success: true
+                text: Фильтр
+                total: 2
+                results:
+                  - guid: NSII0018457907
+                    sku: IF0118K
+                    name: Фильтр салона Угольный
+                    brand: GREEN FILTER
+                    price: 5297
+                    images: []
+                    properties: []
+                    category: null
+                    stocks:
+                      - id: HST466
+                        price: 5297
+                        count: 2
+                        multiplicity: 1
+                        delivery: 3
+                        description: Новосибирск
+                        deliveryStart: null
+                        deliveryEnd: null
+                      - id: HST132904415
+                        price: 5297
+                        count: 1
+                        multiplicity: 1
+                        delivery: 0
+                        description: Астана пр. Акжол 30
+                        deliveryStart: "2026-05-20T09:20:00"
+                        deliveryEnd: "2026-05-20T09:50:00"
+        '400':
+          description: Missing search text or external API unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
 
   # ═══════════════════════════════════════════════════════════════════════════
   # ADDRESSES
