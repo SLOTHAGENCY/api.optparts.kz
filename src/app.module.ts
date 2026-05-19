@@ -25,6 +25,7 @@ import { ProductImage } from './products/entities/product-image.entity';
 import { ProductProperty } from './products/entities/product-property.entity';
 import { Order } from './orders/entities/order.entity';
 import { OrderItem } from './orders/entities/order-item.entity';
+import { RosskoModule } from './rossko/rossko.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { OrderItem } from './orders/entities/order-item.entity';
     CategoriesModule,
     BrandsModule,
     OrdersModule,
+    RosskoModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
