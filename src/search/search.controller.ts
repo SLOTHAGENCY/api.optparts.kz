@@ -15,6 +15,7 @@ import {
 import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { User } from '../users/entities/user.entity';
 import { SearchService } from './search.service';
 import { SearchResponseDto } from './dto/search-response.dto';
@@ -27,7 +28,9 @@ export class SearchController {
   constructor(private readonly searchService: SearchService) {}
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Live multi-supplier search by article (+ optional brand)' })
   @ApiQuery({ name: 'article', required: true, example: '0451103316' })
   @ApiQuery({ name: 'brand', required: false, example: 'BOSCH' })
