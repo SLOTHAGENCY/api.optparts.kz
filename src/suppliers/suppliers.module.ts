@@ -7,6 +7,7 @@ import { SUPPLIERS } from './supplier-connector.interface';
 import { RosskoConnector } from './connectors/rossko/rossko.connector';
 import { TabysConnector } from './connectors/tabys/tabys.connector';
 import { ShateMConnector } from './connectors/shatem/shatem.connector';
+import { AutotradeConnector } from './connectors/autotrade/autotrade.connector';
 import { SuppliersController } from './suppliers.controller';
 
 @Module({
@@ -18,14 +19,16 @@ import { SuppliersController } from './suppliers.controller';
     RosskoConnector,
     TabysConnector,
     ShateMConnector,
+    AutotradeConnector,
     {
       provide: SUPPLIERS,
       useFactory: (
         rossko: RosskoConnector,
         tabys: TabysConnector,
         shatem: ShateMConnector,
-      ) => [rossko, tabys, shatem],
-      inject: [RosskoConnector, TabysConnector, ShateMConnector],
+        autotrade: AutotradeConnector,
+      ) => [rossko, tabys, shatem, autotrade],
+      inject: [RosskoConnector, TabysConnector, ShateMConnector, AutotradeConnector],
     },
   ],
   exports: [SuppliersService, SuppliersRegistry, SUPPLIERS],
