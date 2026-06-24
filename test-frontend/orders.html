@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Заказы — тест</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="nav"></div>
+  <h1>Мои заказы</h1>
+  <div id="msg" class="msg"></div>
+  <div id="orders"></div>
+
+  <script src="app.js"></script>
+  <script>
+    requireAuth();
+
+    function orderBlock(o) {
+      const div = document.createElement('div');
+      div.style.border = '1px solid #ddd';
+      div.style.padding = '10px';
+      div.style.margin = '12px 0';
+      const created = o.createdAt ? new Date(o.createdAt).toLocaleString('ru-RU') : '';
+      div.innerHTML =
+        '<b>Заказ ' + (o.id || '').slice(0, 8) + '</b> · ' +
+        'статус: <b>' + (o.statusLabel || o.status) + '</b> · ' +
+        'сумма: ' + money(o.totalAmount) + ' · ' + created;
+
+      if (o.items && o.items.length) {
+        const t = document.createElement('table');
+        t.innerHTML = '<thead><tr><th>Бренд</th><th>Название</th><th>Поставщик</th><th>Цена</th><th>Кол-во</th><th>Сумма</th></tr></thead>';
+        const tb = document.createElement('tbody');
+        o.items.forEach((i) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = '<td>' + (i.brand || '') + '</td><td>' + (i.productName || '') + '</td>' +
+            '<td>' + (i.supplierCode || '') + '</td><td>' + money(i.sellPrice) + '</td>' +
+            '<td>' + i.quantity + '</td><td>' + money(i.subtotal) + '</td>';
+          tb.appendChild(tr);
+        });
+        t.appendChild(tb);
+        div.appendChild(t);
+      }
+
+      if (o.supplierOrders && o.supplierOrders.length) {
+        const h = document.createElement('div');
+        h.className = 'section-title';
+        h.textContent = 'Размещение у партнёров';
+        div.appendChild(h);
+        const t = document.createElement('table');
+        t.innerHTML = '<thead><tr><th>Поставщик</th><th>Статус</th><th>ID у партнёра</th><th>Возврат</th><th>Ошибка</th></tr></thead>';
+        const tb = document.createElement('tbody');
+        o.supplierOrders.forEach((s) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = '<td>' + (s.supplierCode || '') + '</td><td>' + (s.status || '') + '</td>' +
+            '<td>' + (s.externalOrderId || '—') + '</td><td>' + (s.returnStatus || '—') + '</td>' +
+            '<td class="gone">' + (s.errorMessage || '') + '</td>';
+          tb.appendChild(tr);
+        });
+        t.appendChild(tb);
+        div.appendChild(t);
+      }
+      return div;
+    }
+
+    (async function load() {
+      showMsg('msg', 'Загрузка...', '');
+      try {
+        const orders = await api('/api/orders');
+        const wrap = document.getElementById('orders');
+        if (!orders.length) { showMsg('msg', 'Заказов пока нет.', ''); return; }
+        showMsg('msg', '', '');
+        orders.forEach((o) => wrap.appendChild(orderBlock(o)));
+      } catch (err) {
+        showMsg('msg', 'Ошибка: ' + err.message, 'err');
+      }
+    })();
+  </script>
+</body>
+</html>

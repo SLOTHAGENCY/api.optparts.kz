@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Корзина — тест</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="nav"></div>
+  <h1>Корзина</h1>
+  <div id="msg" class="msg"></div>
+  <div id="cart"></div>
+  <p><button id="checkout">Оформить заказ</button></p>
+
+  <script src="app.js"></script>
+  <script>
+    requireAuth();
+
+    async function load() {
+      showMsg('msg', 'Загрузка (живая проверка цен у партнёров)...', '');
+      const wrap = document.getElementById('cart');
+      wrap.innerHTML = '';
+      try {
+        const cart = await api('/api/cart');
+        if (!cart.items.length) { showMsg('msg', 'Корзина пуста.', ''); return; }
+        showMsg('msg', cart.hasChanges ? 'Внимание: цены/наличие изменились с момента добавления.' : '', cart.hasChanges ? 'err' : '');
+        const table = document.createElement('table');
+        table.innerHTML = '<thead><tr><th>Бренд</th><th>Название</th><th>Поставщик</th>' +
+          '<th>Цена при добавл.</th><th>Текущая</th><th>Кол-во</th><th>Сумма</th><th>Наличие</th><th></th></tr></thead>';
+        const tb = document.createElement('tbody');
+        cart.items.forEach((it) => {
+          const tr = document.createElement('tr');
+          const priceCell = it.priceChanged
+            ? '<span class="changed">' + money(it.currentPrice) + '</span>'
+            : money(it.currentPrice);
+          tr.innerHTML =
+            '<td>' + it.brand + '</td>' +
+            '<td>' + it.productName + '</td>' +
+            '<td>' + (it.supplierName || it.supplierCode) + '</td>' +
+            '<td>' + money(it.priceAtAdd) + '</td>' +
+            '<td>' + priceCell + '</td>' +
+            '<td>' + it.quantity + '</td>' +
+            '<td>' + money(it.subtotal) + '</td>' +
+            '<td>' + (it.available ? 'есть' : '<span class="gone">нет</span>') + '</td>';
+          const actions = document.createElement('td');
+          actions.className = 'row-actions';
+          const inc = document.createElement('button'); inc.textContent = '+';
+          inc.onclick = () => updateQty(it.id, it.quantity + 1);
+          const dec = document.createElement('button'); dec.textContent = '−';
+          dec.onclick = () => updateQty(it.id, it.quantity - 1);
+          dec.disabled = it.quantity <= 1;
+          const del = document.createElement('button'); del.textContent = '×';
+          del.onclick = () => removeItem(it.id);
+          actions.append(dec, inc, del);
+          tr.appendChild(actions);
+          tb.appendChild(tr);
+        });
+        table.appendChild(tb);
+        wrap.appendChild(table);
+        const total = document.createElement('p');
+        total.innerHTML = '<b>Итого: ' + money(cart.totalAmount) + '</b>';
+        wrap.appendChild(total);
+      } catch (err) {
+        showMsg('msg', 'Ошибка: ' + err.message, 'err');
+      }
+    }
+
+    async function updateQty(id, qty) {
+      try { await api('/api/cart/items/' + id, { method: 'PUT', body: JSON.stringify({ quantity: qty }) }); load(); }
+      catch (err) { showMsg('msg', 'Ошибка: ' + err.message, 'err'); }
+    }
+    async function removeItem(id) {
+      try { await api('/api/cart/items/' + id, { method: 'DELETE' }); load(); }
+      catch (err) { showMsg('msg', 'Ошибка: ' + err.message, 'err'); }
+    }
+
+    document.getElementById('checkout').addEventListener('click', async () => {
+      showMsg('msg', 'Оформление...', '');
+      try {
+        await api('/api/orders', { method: 'POST', body: JSON.stringify({}) });
+        location.href = 'orders.html';
+      } catch (err) {
+        if (err.status === 409) {
+          const changes = (err.body && err.body.changes) ? JSON.stringify(err.body.changes) : '';
+          showMsg('msg', 'Цены/наличие изменились — обновите корзину и подтвердите. ' + changes, 'err');
+          load();
+        } else {
+          showMsg('msg', 'Ошибка: ' + err.message, 'err');
+        }
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>

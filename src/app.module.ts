@@ -55,6 +55,15 @@ import { PartnerProductsModule } from './partner-products/partner-products.modul
       rootPath: join(__dirname, '..', 'uploads'),
       serveRoot: '/uploads',
     }),
+    // TEST FRONTEND — удалить вместе с папкой test-frontend/
+    ...(process.env.SERVE_TEST_FRONTEND === 'true'
+      ? [
+          ServeStaticModule.forRoot({
+            rootPath: join(__dirname, '..', 'test-frontend'),
+            serveRoot: '/test',
+          }),
+        ]
+      : []),
     AddressesModule,
     AuthModule,
     UsersModule,
