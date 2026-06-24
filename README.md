@@ -132,3 +132,58 @@ Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
 
 Swagger доступен по `/api/docs` (UI) и `/api/docs-json` (OpenAPI JSON),
 генерируется из аннотаций контроллеров/DTO. Эталон — контроллер `/api/suppliers`.
+
+## Заказы и возвраты (агрегатор)
+
+### Жизненный цикл заказа
+
+`POST /api/orders` оформляет заказ агрегатора:
+
+1. **Финальная live-перепроверка корзины** через `CartService.getCheckoutItems(userId)`
+   (свежие цена/наличие у партнёров).
+2. Если хоть одна позиция `!available` или `priceChanged` — **`409 Conflict`** со
+   списком изменений (`changes[]`); заказ не создаётся (клиент подтверждает новую цену
+   или убирает недоступное).
+3. Создаётся `Order` + снапшоты `order_item` (цены зафиксированы из `currentPrice`).
+4. Позиции группируются по `supplierCode`; на каждую группу создаётся `supplier_order`
+   и вызывается `connector.placeOrder()`.
+5. Итог под-заказа: `PLACED` + `externalOrderId`, либо `FAILED` + `errorMessage`. Если
+   у партнёра нет API заказа (`NotImplementedException`) — `FAILED` с пометкой о ручной
+   обработке.
+6. **Статус заказа агрегируется** из под-заказов: все `PLACED` → `Order.PLACED`; есть
+   хотя бы один `FAILED` (частичный успех) → `Order.PARTIALLY_PLACED`.
+7. Upsert в `partner_products` по каждой позиции; корзина очищается.
+
+Один `Order` → N `supplier_order` (по числу задействованных партнёров). Выдача заказов
+(`GET /api/orders`, `/api/orders/:id`, `/api/orders/all`) включает `supplierOrders[]`.
+
+### Управление под-заказами (роль MANAGER/ADMIN)
+
+- `POST /api/orders/:id/suppliers/:sid/refresh-status` — `connector.getOrderStatus()`,
+  обновляет статус под-заказа («по кнопке»; cron — отдельный поздний этап).
+- `POST /api/orders/:id/suppliers/:sid/retry` — повторяет `placeOrder` для `FAILED`
+  под-заказа (позиции восстанавливаются из иммутабельного снапшота `order_item`).
+- `POST /api/orders/:id/suppliers/:sid/return` — возврат (полуавтомат): где есть API —
+  `connector.requestReturn()`, иначе фиксируется `returnStatus=REQUESTED` для ручной
+  обработки. Тело — список позиций/количеств (`RequestReturnDto`).
+
+### Иммутабельность истории
+
+`order_item` и `supplier_order` после создания **не меняются** перепроверкой —
+live-перепроверка применяется только к корзине. Деактивация партнёра не каскадит на
+существующие заказы: имя/данные партнёра берутся из снапшота.
+
+### `partner_products` (аналитика)
+
+Справочник партнёрских товаров, **upsert при каждом оформлении заказа**
+(`firstSeenAt`/`lastSeenAt`, `lastKnownCostPrice`/`lastKnownSellPrice`,
+инкремент `timesOrdered`; уникальность по `supplierCode + article + brand`). Это
+**не источник поиска и не источник цены** — только аналитика. Чтение:
+`GET /api/partner-products` (MANAGER/ADMIN, фильтры `supplierCode`/`article`, пагинация).
+
+### Шов с корзиной (Spec B)
+
+`POST /api/orders` потребляет `CartService.getCheckoutItems()` через DI-токен
+`CART_CHECKOUT` (`src/orders/cart-checkout.contract.ts`). Сейчас это локальный стаб
+(`CartCheckoutStub`); при мёрже Spec B провайдер заменяется на реальный `CartService`
+(см. комментарий `MERGE:` в `OrdersModule`).
