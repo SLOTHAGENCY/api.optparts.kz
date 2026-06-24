@@ -128,6 +128,32 @@ Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
 `suppliers.markupPercent` партнёра, иначе из `DEFAULT_MARKUP_PERCENT` (`.env`).
 Закупочная цена клиенту никогда не отдаётся.
 
+## Корзина (свежесть цены)
+
+Корзина хранит **снапшот выбранного оффера**, а `GET /api/cart` делает **живой
+запрос** к партнёру и пересчитывает цену/наличие.
+
+- **`POST /api/cart/items`** принимает оффер, как фронт получил его из
+  `GET /api/search`: `supplierCode, article, brand, productName, sellPrice,
+  costPrice, warehouseId, raw, quantity`. Сохраняется снапшот с
+  `priceAtAdd = sellPrice` и `productId = null`. Дедуп — по ключу оффера
+  `(supplierCode, article, brand, warehouseId)`: повтор суммирует количество.
+- **`GET /api/cart`** по каждой позиции параллельно (`Promise.allSettled`,
+  с таймаутом `CART_RECHECK_TIMEOUT_MS`, по умолчанию 10000 мс) перезапрашивает
+  партнёра:
+  - `priceAtAdd` — цена на момент добавления; `currentPrice` — свежая
+    (`PricingService.applyMarkup` от текущего `costPrice`); `priceChanged`
+    подсвечивает разницу.
+  - `subtotal` и `totalAmount` считаются по **свежей** `currentPrice`.
+  - **«Не удалось проверить» = «нет в наличии».** Партнёр недоступен/таймаут,
+    оффер пропал или склада меньше запрошенного количества ⇒ `available: false`,
+    `currentPrice = priceAtAdd`. Позицию нельзя заказать — предлагаем удалить.
+  - `costPrice` в клиентский ответ **не включается**.
+- **Контракт для заказов:** `CartService.getCheckoutItems(userId)` возвращает те же
+  позиции со свежей перепроверкой, но включая `costPrice`/`sellPrice`/`raw`/
+  `warehouseId` — всё, что нужно оформлению (Spec C). `CartModule` экспортирует
+  `CartService`.
+
 ### API-документация
 
 Swagger доступен по `/api/docs` (UI) и `/api/docs-json` (OpenAPI JSON),

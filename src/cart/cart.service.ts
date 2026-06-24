@@ -3,8 +3,43 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Cart } from './entities/cart.entity';
 import { CartItem } from './entities/cart-item.entity';
-import { ProductsService } from '../products/products.service';
 import { AddToCartDto } from './dto/add-to-cart.dto';
+import { SuppliersRegistry } from '../suppliers/suppliers.registry';
+import { PricingService } from '../pricing/pricing.service';
+
+/**
+ * Cart line with a fresh re-check (same as GET /cart), including the
+ * cost/sell/raw/warehouse data Orders (Spec C) needs to place the order.
+ * Contract duplicated verbatim in Spec B and Spec C.
+ */
+export interface CheckoutItem {
+  supplierCode: string;
+  article: string;
+  brand: string;
+  productName: string;
+  costPrice: number;
+  sellPrice: number;
+  currentPrice: number;
+  priceAtAdd: number;
+  warehouseId: string;
+  raw: Record<string, unknown>;
+  quantity: number;
+  available: boolean;
+  priceChanged: boolean;
+}
+
+interface RecheckResult {
+  item: CartItem;
+  supplierName: string;
+  costPrice: number;
+  currentPrice: number;
+  available: boolean;
+  priceChanged: boolean;
+  raw: Record<string, unknown>;
+  warehouseId: string;
+}
+
+const DEFAULT_RECHECK_TIMEOUT_MS = 10000;
 
 @Injectable()
 export class CartService {
@@ -13,13 +48,14 @@ export class CartService {
     private readonly cartRepo: Repository<Cart>,
     @InjectRepository(CartItem)
     private readonly itemRepo: Repository<CartItem>,
-    private readonly productsService: ProductsService,
+    private readonly registry: SuppliersRegistry,
+    private readonly pricing: PricingService,
   ) {}
 
   async getOrCreateCart(userId: string): Promise<Cart> {
     let cart = await this.cartRepo.findOne({
       where: { userId },
-      relations: ['items', 'items.product'],
+      relations: ['items'],
     });
     if (!cart) {
       cart = this.cartRepo.create({ userId, items: [] });
@@ -30,21 +66,79 @@ export class CartService {
 
   async getCart(userId: string) {
     const cart = await this.getOrCreateCart(userId);
-    return this.buildResponse(cart);
+    const results = await this.recheckAll(cart.items ?? []);
+
+    const items = results.map((r) => {
+      const subtotal = r.currentPrice * r.item.quantity;
+      return {
+        id: r.item.id,
+        supplierCode: r.item.supplierCode,
+        supplierName: r.supplierName,
+        article: r.item.article,
+        brand: r.item.brand,
+        productName: r.item.productName,
+        priceAtAdd: Number(r.item.priceAtAdd),
+        currentPrice: r.currentPrice,
+        priceChanged: r.priceChanged,
+        available: r.available,
+        quantity: r.item.quantity,
+        subtotal,
+      };
+    });
+
+    const totalAmount = items.reduce((sum, i) => sum + i.subtotal, 0);
+    const hasChanges = items.some((i) => i.priceChanged || !i.available);
+
+    return { items, totalAmount, hasChanges };
+  }
+
+  /** Cart lines with a fresh re-check, for Orders (Spec C). */
+  async getCheckoutItems(userId: string): Promise<CheckoutItem[]> {
+    const cart = await this.getOrCreateCart(userId);
+    const results = await this.recheckAll(cart.items ?? []);
+    return results.map((r) => ({
+      supplierCode: r.item.supplierCode,
+      article: r.item.article,
+      brand: r.item.brand,
+      productName: r.item.productName,
+      costPrice: r.costPrice,
+      sellPrice: r.currentPrice,
+      currentPrice: r.currentPrice,
+      priceAtAdd: Number(r.item.priceAtAdd),
+      warehouseId: r.warehouseId,
+      raw: r.raw,
+      quantity: r.item.quantity,
+      available: r.available,
+      priceChanged: r.priceChanged,
+    }));
   }
 
   async addItem(userId: string, dto: AddToCartDto) {
-    await this.productsService.findById(dto.productId); // 404 if not found
     const cart = await this.getOrCreateCart(userId);
 
-    const existing = cart.items?.find((i) => i.productId === dto.productId);
+    const existing = cart.items?.find(
+      (i) =>
+        i.supplierCode === dto.supplierCode &&
+        i.article === dto.article &&
+        i.brand === dto.brand &&
+        i.warehouseId === dto.warehouseId,
+    );
+
     if (existing) {
       existing.quantity += dto.quantity;
       await this.itemRepo.save(existing);
     } else {
       const item = this.itemRepo.create({
         cartId: cart.id,
-        productId: dto.productId,
+        productId: null,
+        supplierCode: dto.supplierCode,
+        article: dto.article,
+        brand: dto.brand,
+        productName: dto.productName,
+        priceAtAdd: dto.sellPrice as unknown as string,
+        costPrice: dto.costPrice as unknown as string,
+        warehouseId: dto.warehouseId,
+        raw: dto.raw,
         quantity: dto.quantity,
       });
       await this.itemRepo.save(item);
@@ -78,16 +172,71 @@ export class CartService {
     return this.getCart(userId);
   }
 
-  private buildResponse(cart: Cart) {
-    const items = (cart.items ?? []).map((item) => ({
-      id: item.id,
-      product: item.product,
-      quantity: item.quantity,
-      subtotal: Number(item.product?.price ?? 0) * item.quantity,
-    }));
+  // --- live re-check ---
 
-    const totalAmount = items.reduce((sum, i) => sum + i.subtotal, 0);
+  private async recheckAll(items: CartItem[]): Promise<RecheckResult[]> {
+    const settled = await Promise.allSettled(
+      items.map((item) => this.recheckItem(item)),
+    );
+    // recheckItem catches its own errors, but stay defensive.
+    return settled.map((s, idx) =>
+      s.status === 'fulfilled' ? s.value : this.unavailable(items[idx]),
+    );
+  }
 
-    return { id: cart.id, items, totalAmount };
+  private async recheckItem(item: CartItem): Promise<RecheckResult> {
+    try {
+      const connector = await this.registry.getByCode(item.supplierCode);
+      const offers = await this.withTimeout(
+        connector.search(item.article, item.brand),
+      );
+      const offer = offers.find((o) => o.warehouseId === item.warehouseId);
+      if (!offer) return this.unavailable(item);
+
+      const currentPrice = await this.pricing.applyMarkup(
+        offer.costPrice,
+        item.supplierCode,
+      );
+      const priceAtAdd = Number(item.priceAtAdd);
+      return {
+        item,
+        supplierName: connector.name,
+        costPrice: offer.costPrice,
+        currentPrice,
+        available: offer.count >= item.quantity,
+        priceChanged: currentPrice !== priceAtAdd,
+        raw: offer.raw,
+        warehouseId: offer.warehouseId,
+      };
+    } catch {
+      // Couldn't verify (partner down / timeout / inactive) => not available.
+      return this.unavailable(item);
+    }
+  }
+
+  /** Couldn't verify / offer gone: fall back to the snapshot, mark unavailable. */
+  private unavailable(item: CartItem): RecheckResult {
+    return {
+      item,
+      supplierName: item.supplierCode,
+      costPrice: Number(item.costPrice),
+      currentPrice: Number(item.priceAtAdd),
+      available: false,
+      priceChanged: false,
+      raw: item.raw ?? {},
+      warehouseId: item.warehouseId,
+    };
+  }
+
+  private withTimeout<T>(p: Promise<T>): Promise<T> {
+    const ms =
+      Number(process.env.CART_RECHECK_TIMEOUT_MS) || DEFAULT_RECHECK_TIMEOUT_MS;
+    let timer: NodeJS.Timeout;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('recheck timeout')), ms);
+    });
+    return Promise.race([p, timeout]).finally(() =>
+      clearTimeout(timer),
+    ) as Promise<T>;
   }
 }
