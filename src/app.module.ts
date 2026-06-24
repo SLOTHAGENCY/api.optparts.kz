@@ -31,6 +31,9 @@ import { PricingModule } from './pricing/pricing.module';
 import { SearchModule } from './search/search.module';
 import { Supplier } from './suppliers/entities/supplier.entity';
 import { SearchLog } from './search/entities/search-log.entity';
+import { SupplierOrder } from './orders/entities/supplier-order.entity';
+import { PartnerProduct } from './partner-products/entities/partner-product.entity';
+import { PartnerProductsModule } from './partner-products/partner-products.module';
 
 @Module({
   imports: [
@@ -42,7 +45,7 @@ import { SearchLog } from './search/entities/search-log.entity';
         username: process.env.DB_USERNAME || 'postgres',
         password: process.env.DB_PASSWORD || 'postgres',
         database: process.env.DB_NAME || 'nestjs_auth',
-        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog],
+        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct],
         migrations: ['dist/migrations/*.js'],
         synchronize: process.env.NODE_ENV === 'development',
         logging: process.env.NODE_ENV === 'development',
@@ -61,6 +64,7 @@ import { SearchLog } from './search/entities/search-log.entity';
     CategoriesModule,
     BrandsModule,
     OrdersModule,
+    PartnerProductsModule,
     RosskoModule,
     SuppliersModule,
     PricingModule,

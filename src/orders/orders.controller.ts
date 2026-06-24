@@ -2,15 +2,25 @@ import {
   Controller, Get, Post, Patch, Body, Put, Delete,
   Param, HttpCode, HttpStatus, ParseUUIDPipe, UseGuards,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { RequestReturnDto } from './dto/request-return.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { User, UserRole } from '../users/entities/user.entity';
 import { UpsertCommentDto } from './dto/upsert-comment.dto';
 
+@ApiTags('orders')
+@ApiBearerAuth()
 @Controller('orders')
 @UseGuards(RolesGuard)
 export class OrdersController {
@@ -38,8 +48,64 @@ export class OrdersController {
   /** POST /orders */
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary:
+      'Place an aggregator order: final live re-check of the cart, then place with partners.',
+  })
+  @ApiResponse({ status: 201, description: 'Order created and placed with partners.' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Cart changed since last review (unavailable items / price changes) — order not created.',
+  })
   create(@CurrentUser() user: User, @Body() dto: CreateOrderDto) {
     return this.ordersService.create(user.id, dto);
+  }
+
+  /** POST /orders/:id/suppliers/:sid/refresh-status — pull partner status (MANAGER/ADMIN) */
+  @Roles(UserRole.MANAGER, UserRole.ADMIN)
+  @Post(':id/suppliers/:sid/refresh-status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Refresh a sub-order status from the partner (MANAGER/ADMIN).' })
+  @ApiParam({ name: 'id', description: 'Order id' })
+  @ApiParam({ name: 'sid', description: 'Supplier sub-order id' })
+  refreshSupplierStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('sid', ParseUUIDPipe) sid: string,
+  ) {
+    return this.ordersService.refreshSupplierStatus(id, sid);
+  }
+
+  /** POST /orders/:id/suppliers/:sid/retry — retry a FAILED sub-order (MANAGER/ADMIN) */
+  @Roles(UserRole.MANAGER, UserRole.ADMIN)
+  @Post(':id/suppliers/:sid/retry')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Retry placing a FAILED sub-order (MANAGER/ADMIN).' })
+  @ApiParam({ name: 'id', description: 'Order id' })
+  @ApiParam({ name: 'sid', description: 'Supplier sub-order id' })
+  retrySupplierOrder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('sid', ParseUUIDPipe) sid: string,
+  ) {
+    return this.ordersService.retrySupplierOrder(id, sid);
+  }
+
+  /** POST /orders/:id/suppliers/:sid/return — request a return (MANAGER/ADMIN) */
+  @Roles(UserRole.MANAGER, UserRole.ADMIN)
+  @Post(':id/suppliers/:sid/return')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Request a return for a sub-order (semi-automatic: API where available, else manual) (MANAGER/ADMIN).',
+  })
+  @ApiParam({ name: 'id', description: 'Order id' })
+  @ApiParam({ name: 'sid', description: 'Supplier sub-order id' })
+  requestSupplierReturn(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('sid', ParseUUIDPipe) sid: string,
+    @Body() dto: RequestReturnDto,
+  ) {
+    return this.ordersService.requestSupplierReturn(id, sid, dto);
   }
 
   /** PATCH /orders/:id/status — admin/manager update status */

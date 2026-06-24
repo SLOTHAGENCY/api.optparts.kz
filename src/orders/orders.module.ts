@@ -2,16 +2,27 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Order } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
+import { SupplierOrder } from './entities/supplier-order.entity';
 import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
-import { ProductsModule } from '../products/products.module';
+import { SuppliersModule } from '../suppliers/suppliers.module';
+import { PartnerProductsModule } from '../partner-products/partner-products.module';
+import { CartModule } from '../cart/cart.module';
+import { CartService } from '../cart/cart.service';
+import { CART_CHECKOUT } from './cart-checkout.contract';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, OrderItem]),
-    ProductsModule,
+    TypeOrmModule.forFeature([Order, OrderItem, SupplierOrder]),
+    SuppliersModule,
+    PartnerProductsModule,
+    CartModule,
   ],
-  providers: [OrdersService],
+  providers: [
+    OrdersService,
+    // Cart checkout seam (Spec B): backed by the real CartService once merged.
+    { provide: CART_CHECKOUT, useExisting: CartService },
+  ],
   controllers: [OrdersController],
 })
 export class OrdersModule {}
