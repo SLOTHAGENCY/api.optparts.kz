@@ -24,8 +24,8 @@ import {
  * Search: getStocksAndPrices (needs a brand). Response is keyed by article with a
  * per-warehouse stocks map. Prices are in the account currency (KZT for KZ).
  *
- * placeOrder/getOrderStatus: the order-creation method is not yet wired (its spec
- * was unavailable) -> NotImplemented, handle order manually for now.
+ * placeOrder: createDocUnconfirmedOrder (from_basket=2, no balance debit).
+ * getOrderStatus: not wired (use getDocList/getDocDetails) -> handle manually.
  */
 @Injectable()
 export class AutotradeConnector implements SupplierConnector {
@@ -143,10 +143,53 @@ export class AutotradeConnector implements SupplierConnector {
     return String(value ?? '').trim().toUpperCase();
   }
 
-  async placeOrder(_items: PlaceOrderItem[]): Promise<SupplierOrderResult> {
-    throw new NotImplementedException(
-      'Autotrade order creation is not wired yet (basket/order method pending) — handle manually.',
-    );
+  async placeOrder(items: PlaceOrderItem[]): Promise<SupplierOrderResult> {
+    // createDocUnconfirmedOrder with from_basket=2 places without a basket and
+    // WITHOUT debiting the balance/reserving (manager confirms later) — safer than
+    // createDocRealization which charges immediately.
+    const receiptType = Number(process.env.AUTOTRADE_RECEIPT_TYPE) || 2; // 2=pickup,3=delivery
+    try {
+      const data = await this.call('createDocUnconfirmedOrder', {
+        items: items.map((i) => ({
+          article: i.article,
+          brand: i.brand,
+          quantity: i.quantity,
+          id_group_stocks: Number((i.raw as any)?.stockId ?? i.warehouseId),
+          type_receipt_item: receiptType,
+        })),
+        from_basket: 2,
+        contract_id: process.env.AUTOTRADE_CONTRACT_ID,
+        payment_type: process.env.AUTOTRADE_PAYMENT_TYPE || 'with_balance',
+      });
+      if (data && Number(data.code) !== 0) {
+        return {
+          externalOrderId: null,
+          status: 'FAILED',
+          errorMessage: data?.message || 'Autotrade order rejected.',
+        };
+      }
+      // order_numbers: { <stockId>: "НРК..." } (or nested for under-order).
+      const externalOrderId = this.flattenOrderNumbers(data?.order_numbers);
+      return { externalOrderId, status: 'PLACED' };
+    } catch (err: any) {
+      this.logger.error('Autotrade placeOrder failed', err?.message);
+      return {
+        externalOrderId: null,
+        status: 'FAILED',
+        errorMessage: err?.message || 'Autotrade order failed.',
+      };
+    }
+  }
+
+  /** order_numbers can be { stockId: number } or { stockId: { deliveryId: number } }. */
+  private flattenOrderNumbers(orderNumbers: any): string | null {
+    if (!orderNumbers || typeof orderNumbers !== 'object') return null;
+    const nums: string[] = [];
+    for (const v of Object.values(orderNumbers)) {
+      if (v && typeof v === 'object') nums.push(...Object.values(v).map(String));
+      else nums.push(String(v));
+    }
+    return nums.length ? nums.join(',') : null;
   }
 
   async getOrderStatus(
