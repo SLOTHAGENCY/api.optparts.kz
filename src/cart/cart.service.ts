@@ -136,7 +136,9 @@ export class CartService {
         brand: dto.brand,
         productName: dto.productName,
         priceAtAdd: dto.sellPrice as unknown as string,
-        costPrice: dto.costPrice as unknown as string,
+        // Client never sends costPrice (search hides it); re-check re-derives the
+        // authoritative value. Store the optional fallback or 0.
+        costPrice: (dto.costPrice ?? 0) as unknown as string,
         warehouseId: dto.warehouseId,
         raw: dto.raw,
         quantity: dto.quantity,

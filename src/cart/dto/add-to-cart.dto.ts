@@ -1,9 +1,10 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
   IsNotEmpty,
   IsNumber,
   IsInt,
+  IsOptional,
   Min,
   IsObject,
 } from 'class-validator';
@@ -37,10 +38,16 @@ export class AddToCartDto {
   @Min(0)
   sellPrice: number;
 
-  @ApiProperty({ description: 'partner cost price (internal)', example: 4333 })
+  @ApiPropertyOptional({
+    description:
+      'Internal cost price. NOT sent by clients — search never exposes it; ' +
+      'the server re-derives it on every live re-check. Optional fallback only.',
+    example: 4333,
+  })
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  costPrice: number;
+  costPrice?: number;
 
   @ApiProperty({ description: 'partner warehouse / offer id', example: 'W12' })
   @IsString()
