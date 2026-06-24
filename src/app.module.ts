@@ -26,6 +26,8 @@ import { ProductProperty } from './products/entities/product-property.entity';
 import { Order } from './orders/entities/order.entity';
 import { OrderItem } from './orders/entities/order-item.entity';
 import { RosskoModule } from './rossko/rossko.module';
+import { SuppliersModule } from './suppliers/suppliers.module';
+import { PricingModule } from './pricing/pricing.module';
 import { Supplier } from './suppliers/entities/supplier.entity';
 
 @Module({
@@ -58,6 +60,8 @@ import { Supplier } from './suppliers/entities/supplier.entity';
     BrandsModule,
     OrdersModule,
     RosskoModule,
+    SuppliersModule,
+    PricingModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
