@@ -26,6 +26,7 @@ import { ProductProperty } from './products/entities/product-property.entity';
 import { Order } from './orders/entities/order.entity';
 import { OrderItem } from './orders/entities/order-item.entity';
 import { RosskoModule } from './rossko/rossko.module';
+import { Supplier } from './suppliers/entities/supplier.entity';
 
 @Module({
   imports: [
@@ -37,7 +38,7 @@ import { RosskoModule } from './rossko/rossko.module';
         username: process.env.DB_USERNAME || 'postgres',
         password: process.env.DB_PASSWORD || 'postgres',
         database: process.env.DB_NAME || 'nestjs_auth',
-        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem],
+        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier],
         migrations: ['dist/migrations/*.js'],
         synchronize: process.env.NODE_ENV === 'development',
         logging: process.env.NODE_ENV === 'development',

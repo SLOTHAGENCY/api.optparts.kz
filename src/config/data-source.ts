@@ -11,6 +11,7 @@ import { Category } from '../categories/entities/category.entity';
 import { Brand } from '../brands/entities/brand.entity';
 import { Order } from '../orders/entities/order.entity';
 import { OrderItem } from '../orders/entities/order-item.entity';
+import { Supplier } from '../suppliers/entities/supplier.entity';
 dotenv.config();
 
 export const AppDataSource = new DataSource({
@@ -32,6 +33,7 @@ export const AppDataSource = new DataSource({
     Brand,
     Order,
     OrderItem,
+    Supplier,
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
