@@ -28,7 +28,9 @@ import { OrderItem } from './orders/entities/order-item.entity';
 import { RosskoModule } from './rossko/rossko.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { PricingModule } from './pricing/pricing.module';
+import { SearchModule } from './search/search.module';
 import { Supplier } from './suppliers/entities/supplier.entity';
+import { SearchLog } from './search/entities/search-log.entity';
 
 @Module({
   imports: [
@@ -40,7 +42,7 @@ import { Supplier } from './suppliers/entities/supplier.entity';
         username: process.env.DB_USERNAME || 'postgres',
         password: process.env.DB_PASSWORD || 'postgres',
         database: process.env.DB_NAME || 'nestjs_auth',
-        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier],
+        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog],
         migrations: ['dist/migrations/*.js'],
         synchronize: process.env.NODE_ENV === 'development',
         logging: process.env.NODE_ENV === 'development',
@@ -62,6 +64,7 @@ import { Supplier } from './suppliers/entities/supplier.entity';
     RosskoModule,
     SuppliersModule,
     PricingModule,
+    SearchModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
