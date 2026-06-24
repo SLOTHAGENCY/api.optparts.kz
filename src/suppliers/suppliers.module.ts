@@ -5,6 +5,7 @@ import { SuppliersService } from './suppliers.service';
 import { SuppliersRegistry } from './suppliers.registry';
 import { SUPPLIERS } from './supplier-connector.interface';
 import { RosskoConnector } from './connectors/rossko/rossko.connector';
+import { TabysConnector } from './connectors/tabys/tabys.connector';
 import { SuppliersController } from './suppliers.controller';
 
 @Module({
@@ -14,10 +15,14 @@ import { SuppliersController } from './suppliers.controller';
     SuppliersService,
     SuppliersRegistry,
     RosskoConnector,
+    TabysConnector,
     {
       provide: SUPPLIERS,
-      useFactory: (rossko: RosskoConnector) => [rossko],
-      inject: [RosskoConnector],
+      useFactory: (rossko: RosskoConnector, tabys: TabysConnector) => [
+        rossko,
+        tabys,
+      ],
+      inject: [RosskoConnector, TabysConnector],
     },
   ],
   exports: [SuppliersService, SuppliersRegistry, SUPPLIERS],
