@@ -11,6 +11,8 @@ import {
   SearchGroupDto,
   SearchResponseDto,
 } from './dto/search-response.dto';
+import { User, UserRole } from '../users/entities/user.entity';
+import { HistoryQueryDto, HistoryResponseDto } from './dto/search-history.dto';
 
 const DEFAULT_SEARCH_TIMEOUT_MS = 15000;
 
@@ -85,6 +87,27 @@ export class SearchService {
     });
 
     return { query: { article, brand: brand ?? null }, exact, analogs };
+  }
+
+  async history(
+    user: User,
+    query: HistoryQueryDto,
+  ): Promise<HistoryResponseDto> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const isPrivileged = (user.roles ?? []).some(
+      (role) => role === UserRole.ADMIN || role === UserRole.MANAGER,
+    );
+    const where = isPrivileged ? {} : { userId: user.id };
+
+    const [items, total] = await this.searchLogRepo.findAndCount({
+      where,
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return { items, total, page, limit };
   }
 
   private async toNormalizedOffer(

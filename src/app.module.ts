@@ -28,6 +28,7 @@ import { OrderItem } from './orders/entities/order-item.entity';
 import { RosskoModule } from './rossko/rossko.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { PricingModule } from './pricing/pricing.module';
+import { SearchModule } from './search/search.module';
 import { Supplier } from './suppliers/entities/supplier.entity';
 import { SearchLog } from './search/entities/search-log.entity';
 
@@ -63,6 +64,7 @@ import { SearchLog } from './search/entities/search-log.entity';
     RosskoModule,
     SuppliersModule,
     PricingModule,
+    SearchModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
