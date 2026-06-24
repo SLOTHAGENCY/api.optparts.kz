@@ -92,10 +92,10 @@ export class RosskoConnector implements SupplierConnector {
             article: crossArticle,
             brand: crossBrand,
             name: String(cross.name ?? ''),
-            costPrice: Number(stock.price),
-            count: Number(stock.count),
-            deliveryDays: Number(stock.delivery),
-            multiplicity: Number(stock.multiplicity),
+            costPrice: this.toNumber(stock.price),
+            count: this.toNumber(stock.count),
+            deliveryDays: this.toNumber(stock.delivery),
+            multiplicity: this.toNumber(stock.multiplicity),
             warehouseId,
             isAnalog,
             raw: {
@@ -135,6 +135,11 @@ export class RosskoConnector implements SupplierConnector {
 
   private normalize(value: string): string {
     return String(value ?? '').trim().toUpperCase();
+  }
+
+  private toNumber(value: unknown): number {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
   }
 
   private buildSoapEnvelope(text: string): string {

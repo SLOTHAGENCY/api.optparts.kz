@@ -88,4 +88,40 @@ describe('RosskoConnector.parseOffers', () => {
       NotImplementedException,
     );
   });
+
+  it('coerces missing numeric stock tags to 0 instead of NaN', () => {
+    const xmlWithMissingPrice = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <ns:GetSearchResponse xmlns:ns="https://api.rossko.ru/">
+      <SearchResult>
+        <success>true</success>
+        <text>0451103316</text>
+        <PartsList>
+          <Part>
+            <partnumber>0451103316</partnumber>
+            <brand>BOSCH</brand>
+            <crosses>
+              <Part>
+                <guid>g-test</guid>
+                <partnumber>0451103316</partnumber>
+                <brand>BOSCH</brand>
+                <name>Oil Filter</name>
+                <stocks>
+                  <stock><id>s1</id><count>10</count><multiplicity>1</multiplicity><delivery>3</delivery></stock>
+                </stocks>
+              </Part>
+            </crosses>
+          </Part>
+        </PartsList>
+      </SearchResult>
+    </ns:GetSearchResponse>
+  </soap:Body>
+</soap:Envelope>`;
+    const offers = connector.parseOffers(xmlWithMissingPrice, '0451103316', 'BOSCH');
+    expect(offers).toHaveLength(1);
+    const offer = offers[0];
+    expect(Number.isNaN(offer.costPrice)).toBe(false);
+    expect(offer.costPrice).toBe(0);
+  });
 });
