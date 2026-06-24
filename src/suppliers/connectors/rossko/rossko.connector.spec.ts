@@ -77,6 +77,12 @@ describe('RosskoConnector.parseOffers', () => {
     expect(first?.raw).toMatchObject({ guid: 'g-exact', stockId: 's1' });
   });
 
+  it('recognizes exact match when brand is omitted', () => {
+    const offers = connector.parseOffers(XML, '0451103316');
+    const exactMatch = offers.find((o) => o.warehouseId === 's1');
+    expect(exactMatch?.isAnalog).toBe(false);
+  });
+
   it('placeOrder is not implemented yet', async () => {
     await expect(connector.placeOrder([])).rejects.toBeInstanceOf(
       NotImplementedException,

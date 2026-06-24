@@ -75,6 +75,7 @@ export class RosskoConnector implements SupplierConnector {
           : [];
         const crossArticle = String(cross.partnumber ?? '');
         const crossBrand = String(cross.brand ?? '');
+        const guid = String(cross.guid ?? '');
         const isAnalog = !(
           this.normalize(crossArticle) === wantArticle &&
           (wantBrand === null || this.normalize(crossBrand) === wantBrand)
@@ -82,7 +83,7 @@ export class RosskoConnector implements SupplierConnector {
 
         for (const stock of stocks) {
           const warehouseId = String(stock.id);
-          const dedupeKey = `${cross.guid}|${warehouseId}`;
+          const dedupeKey = `${guid}|${warehouseId}`;
           if (seen.has(dedupeKey)) continue;
           seen.add(dedupeKey);
 
@@ -90,7 +91,7 @@ export class RosskoConnector implements SupplierConnector {
             supplierCode: this.code,
             article: crossArticle,
             brand: crossBrand,
-            name: cross.name ?? '',
+            name: String(cross.name ?? ''),
             costPrice: Number(stock.price),
             count: Number(stock.count),
             deliveryDays: Number(stock.delivery),
@@ -98,7 +99,7 @@ export class RosskoConnector implements SupplierConnector {
             warehouseId,
             isAnalog,
             raw: {
-              guid: cross.guid,
+              guid,
               partnumber: crossArticle,
               brand: crossBrand,
               stockId: warehouseId,
