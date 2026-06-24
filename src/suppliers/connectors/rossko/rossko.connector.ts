@@ -175,10 +175,58 @@ export class RosskoConnector implements SupplierConnector {
     return { externalOrderId, status: 'PLACED' };
   }
 
-  async getOrderStatus(_externalOrderId: string): Promise<SupplierOrderStatusValue> {
-    throw new NotImplementedException(
-      'Rossko getOrderStatus is not yet implemented.',
-    );
+  async getOrderStatus(externalOrderId: string): Promise<SupplierOrderStatusValue> {
+    // placeOrder may join several order numbers with commas; check the first.
+    const id = String(externalOrderId).split(',')[0].trim();
+    const soap = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <tns:GetOrders xmlns:tns="https://api.rossko.ru/">
+      <tns:KEY1>${process.env.ROSSKO_KEY1}</tns:KEY1>
+      <tns:KEY2>${process.env.ROSSKO_KEY2}</tns:KEY2>
+      <tns:order_ids><tns:id>${this.escapeXml(id)}</tns:id></tns:order_ids>
+    </tns:GetOrders>
+  </soap:Body>
+</soap:Envelope>`;
+    let rawXml: string;
+    try {
+      const response = await axios.post(
+        `${process.env.ROSSKO_API_URL}/service/v2.1/GetOrders`,
+        soap,
+        {
+          headers: {
+            'Content-Type': 'text/xml; charset=utf-8',
+            SOAPAction: 'https://api.rossko.ru/service/v2.1/GetOrders',
+          },
+          timeout: 15000,
+        },
+      );
+      rawXml = response.data;
+    } catch (err: any) {
+      this.logger.error('Rossko GetOrders failed', err?.message);
+      throw new BadRequestException('External parts API is unavailable.');
+    }
+    return this.parseOrderStatus(rawXml);
+  }
+
+  /** Public for unit testing. Maps the GetOrders response to our status. */
+  parseOrderStatus(xml: string): SupplierOrderStatusValue {
+    const parsed = this.parser.parse(xml);
+    const result = parsed?.Envelope?.Body?.GetOrdersResponse?.OrdersResult ?? {};
+    const ordersRaw = result?.orders?.order ?? result?.order ?? null;
+    const order = Array.isArray(ordersRaw) ? ordersRaw[0] : ordersRaw;
+    return this.mapStatus(order?.status ?? order?.state ?? result?.status);
+  }
+
+  /** Map a Rossko portal status string to our internal status. */
+  mapStatus(status: unknown): SupplierOrderStatusValue {
+    const s = String(status ?? '').toLowerCase();
+    if (!s) return 'PLACED';
+    if (s.includes('отмен') || s.includes('cancel')) return 'CANCELLED';
+    if (s.includes('выдан') || s.includes('доставлен') || s.includes('получен') || s.includes('deliver')) return 'DELIVERED';
+    if (s.includes('отгруж') || s.includes('собран') || s.includes('путь') || s.includes('ship')) return 'SHIPPED';
+    if (s.includes('подтвержд') || s.includes('укомплект') || s.includes('confirm')) return 'CONFIRMED';
+    return 'PLACED';
   }
 
   async requestReturn(

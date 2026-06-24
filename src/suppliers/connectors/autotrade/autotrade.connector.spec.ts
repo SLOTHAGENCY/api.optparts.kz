@@ -69,3 +69,12 @@ describe('AutotradeConnector.mapOffers', () => {
     expect(connector.mapOffers({ items: [] }, 'A')).toEqual([]);
   });
 });
+
+describe('AutotradeConnector.mapStatus', () => {
+  const connector = new AutotradeConnector();
+  it('maps document type/real flags to status', () => {
+    expect(connector.mapStatus({ type_doc: 'Реализация', real: 1 })).toBe('DELIVERED');
+    expect(connector.mapStatus({ type_doc: 'ЗаявкаПокупателя', real: 0 })).toBe('PLACED');
+    expect(connector.mapStatus(null)).toBe('PLACED');
+  });
+});

@@ -25,7 +25,7 @@ import {
  * per-warehouse stocks map. Prices are in the account currency (KZT for KZ).
  *
  * placeOrder: createDocUnconfirmedOrder (from_basket=2, no balance debit).
- * getOrderStatus: not wired (use getDocList/getDocDetails) -> handle manually.
+ * getOrderStatus: getDocList by document_number, mapped from type_doc/real.
  */
 @Injectable()
 export class AutotradeConnector implements SupplierConnector {
@@ -193,11 +193,42 @@ export class AutotradeConnector implements SupplierConnector {
   }
 
   async getOrderStatus(
-    _externalOrderId: string,
+    externalOrderId: string,
   ): Promise<SupplierOrderStatusValue> {
-    throw new NotImplementedException(
-      'Autotrade getOrderStatus is not wired yet (use getDocList/getDocDetails).',
-    );
+    const number = String(externalOrderId).split(',')[0].trim();
+    // getDocList needs a date window; look back a year up to today.
+    const now = new Date();
+    const toDate = now.toISOString().slice(0, 10);
+    const fromDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    let data: any;
+    try {
+      data = await this.call('getDocList', {
+        fromDate,
+        toDate,
+        document_number: number,
+        limit: 5,
+      });
+    } catch (err: any) {
+      this.logger.error('Autotrade getOrderStatus failed', err?.message);
+      throw new BadRequestException('External parts API is unavailable.');
+    }
+    const items: any[] = data?.items ?? [];
+    const doc =
+      items.find((d) => String(d?.number) === number) ?? items[0] ?? null;
+    return this.mapStatus(doc);
+  }
+
+  /** Map an Autotrade document to our status (type_doc/real flags). */
+  mapStatus(doc: any): SupplierOrderStatusValue {
+    if (!doc) return 'PLACED';
+    const type = String(doc?.type_doc ?? '').toLowerCase();
+    const real = Number(doc?.real);
+    if (type.includes('реализ') || real === 1) return 'DELIVERED';
+    if (type.includes('отгру')) return 'SHIPPED';
+    if (type.includes('заявк')) return 'PLACED';
+    return 'PLACED';
   }
 
   async requestReturn(

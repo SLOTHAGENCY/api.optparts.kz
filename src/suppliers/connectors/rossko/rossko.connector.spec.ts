@@ -175,3 +175,29 @@ describe('RosskoConnector checkout (order placement)', () => {
     expect(res.errorMessage).toContain('Insufficient');
   });
 });
+
+describe('RosskoConnector order status', () => {
+  const connector = new RosskoConnector();
+
+  it('parses order status from GetOrders response', () => {
+    const xml = `<?xml version="1.0"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <ns:GetOrdersResponse xmlns:ns="https://api.rossko.ru/">
+      <ns:OrdersResult>
+        <ns:success>true</ns:success>
+        <ns:orders><ns:order><ns:number>RK-1</ns:number><ns:status>Отгружен</ns:status></ns:order></ns:orders>
+      </ns:OrdersResult>
+    </ns:GetOrdersResponse>
+  </soap:Body>
+</soap:Envelope>`;
+    expect(connector.parseOrderStatus(xml)).toBe('SHIPPED');
+  });
+
+  it('maps status keywords defensively', () => {
+    expect(connector.mapStatus('Заказ отменён')).toBe('CANCELLED');
+    expect(connector.mapStatus('Выдан клиенту')).toBe('DELIVERED');
+    expect(connector.mapStatus('Подтверждён')).toBe('CONFIRMED');
+    expect(connector.mapStatus('Новый')).toBe('PLACED');
+  });
+});
