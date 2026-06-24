@@ -189,10 +189,23 @@ export class CartService {
   private async recheckItem(item: CartItem): Promise<RecheckResult> {
     try {
       const connector = await this.registry.getByCode(item.supplierCode);
+      // Re-check by the ORIGINAL search query (stored in raw), not the offer's own
+      // article: some suppliers (Rossko) only return an offer as a cross under its
+      // parent query, so re-searching the offer's own article wouldn't reproduce it.
+      const raw = (item.raw ?? {}) as Record<string, unknown>;
+      const queryArticle = (raw.queryArticle as string) ?? item.article;
+      const queryBrand = (raw.queryBrand as string | null) ?? item.brand;
       const offers = await this.withTimeout(
-        connector.search(item.article, item.brand),
+        connector.search(queryArticle, queryBrand ?? undefined),
       );
-      const offer = offers.find((o) => o.warehouseId === item.warehouseId);
+      // Match the SAME offer by the connector's stable offerKey (e.g. Rossko
+      // guid|stockId). warehouseId alone is a warehouse, shared by many products,
+      // so matching on it can pull a different product's price. Fall back to
+      // warehouseId only for legacy items stored without an offerKey.
+      const itemKey = (item.raw as Record<string, unknown> | null)?.offerKey;
+      const offer = itemKey
+        ? offers.find((o) => o.raw?.offerKey === itemKey)
+        : offers.find((o) => o.warehouseId === item.warehouseId);
       if (!offer) return this.unavailable(item);
 
       const currentPrice = await this.pricing.applyMarkup(

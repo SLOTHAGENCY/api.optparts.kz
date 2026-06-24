@@ -143,6 +143,23 @@ describe('CartService', () => {
     expect(res.items[0]).not.toHaveProperty('costPrice');
   });
 
+  it('re-check matches by offerKey, not warehouseId (Rossko stock id is shared)', async () => {
+    // Both offers share warehouseId 'W1' but are different products (offerKey).
+    const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
+      makeOffer({ warehouseId: 'W1', costPrice: 500, raw: { offerKey: 'g2|W1' } }),
+      makeOffer({ warehouseId: 'W1', costPrice: 100, raw: { offerKey: 'g1|W1' } }),
+    ]);
+    const { service } = makeService({
+      items: [makeItem({ raw: { offerKey: 'g1|W1' } })],
+      connector,
+      applyMarkup: async (c) => Math.round(c * 1.2),
+    });
+    const res = await service.getCart('u1');
+    // Must pick the g1 offer (100 -> 120), NOT the g2 offer sharing the warehouse.
+    expect(res.items[0].currentPrice).toBe(120);
+    expect(res.items[0].available).toBe(true);
+  });
+
   it('getCart treats partner failure as unavailable with currentPrice = priceAtAdd', async () => {
     const connector = new MockConnector('mock', 'Mock Supplier').failWith(
       new Error('partner down'),

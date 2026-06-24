@@ -75,6 +75,8 @@ describe('RosskoConnector.parseOffers', () => {
     const offers = connector.parseOffers(XML, '0451103316', 'BOSCH');
     const first = offers.find((o) => o.warehouseId === 's1');
     expect(first?.raw).toMatchObject({ guid: 'g-exact', stockId: 's1' });
+    // Stable offer key = guid|stockId (stock id alone is a shared warehouse).
+    expect(first?.raw.offerKey).toBe('g-exact|s1');
   });
 
   it('recognizes exact match when brand is omitted', () => {

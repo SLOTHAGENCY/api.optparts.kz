@@ -105,6 +105,11 @@ export class TabysConnector implements SupplierConnector {
           isAnalog,
           // Everything placeOrder needs back.
           raw: {
+            // Stable offer identity: product + price template (the orderable line).
+            offerKey: `${productId}|${offer?.priceTemplateId ?? offer?.warehouseId ?? ''}`,
+            // Original query, so the cart re-check reproduces the same response.
+            queryArticle: article,
+            queryBrand: brand ?? null,
             productId,
             sourceType: 1, // PriceTemplate
             sourceId: offer?.priceTemplateId ?? null,

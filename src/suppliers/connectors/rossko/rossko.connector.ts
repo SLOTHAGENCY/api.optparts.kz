@@ -99,6 +99,13 @@ export class RosskoConnector implements SupplierConnector {
             warehouseId,
             isAnalog,
             raw: {
+              // Stable offer identity: a Rossko stock id is a WAREHOUSE shared by
+              // many products, so guid (the cross/product) must be part of the key.
+              offerKey: `${guid}|${warehouseId}`,
+              // The offer only exists as a cross under THIS parent query — store it
+              // so the cart re-check reproduces the same response (Spec B).
+              queryArticle: article,
+              queryBrand: brand ?? null,
               guid,
               partnumber: crossArticle,
               brand: crossBrand,
