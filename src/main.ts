@@ -1,5 +1,6 @@
 import { NestFactory, Reflector } from '@nestjs/core';
 import { ClassSerializerInterceptor } from '@nestjs/common';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { useContainer } from 'class-validator';
 import * as dotenv from 'dotenv';
 import { AppModule } from './app.module';
@@ -17,6 +18,15 @@ async function bootstrap() {
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
 
   app.setGlobalPrefix('api');
+
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('optparts.kz API')
+    .setDescription('Multi-supplier auto parts aggregator API')
+    .setVersion('1.0.0')
+    .addBearerAuth()
+    .build();
+  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('api/docs', app, document);
 
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
