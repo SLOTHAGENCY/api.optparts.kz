@@ -18,7 +18,9 @@ export class OrderItem {
   @Column()
   orderId: string;
 
-  @ManyToOne(() => Product, { eager: true, onDelete: 'SET NULL', nullable: true })
+  // Not eager: aggregator items have productId=null; eager-loading Product pulls
+  // the self-referential Category tree and recurses. Load explicitly if ever needed.
+  @ManyToOne(() => Product, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn()
   product: Product;
 

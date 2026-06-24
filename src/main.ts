@@ -1,11 +1,11 @@
+// Load .env BEFORE importing AppModule: app.module.ts reads process.env at module
+// decoration time (e.g. the SERVE_TEST_FRONTEND ServeStatic toggle).
+import 'dotenv/config';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { ClassSerializerInterceptor } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { useContainer } from 'class-validator';
-import * as dotenv from 'dotenv';
 import { AppModule } from './app.module';
-
-dotenv.config();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

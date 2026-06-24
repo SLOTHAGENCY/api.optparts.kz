@@ -23,7 +23,9 @@ export class CartItem {
   cartId: string;
 
   // Own product — kept for future self-catalog offers; null for aggregator offers.
-  @ManyToOne(() => Product, { eager: true, onDelete: 'CASCADE', nullable: true })
+  // Not eager: eager-loading Product pulls the self-referential Category tree and
+  // recurses (TypeORM joinEagerRelations). Load explicitly if ever needed.
+  @ManyToOne(() => Product, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn()
   product: Product | null;
 
