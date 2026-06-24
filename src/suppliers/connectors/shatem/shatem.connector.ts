@@ -16,15 +16,17 @@ import {
 } from '../../types';
 
 /**
- * SHATE-M (api-doc.shate-m.by) REST connector.
+ * SHATE-M (api.shate-m.kz) REST connector. Mapping verified against the live
+ * OpenAPI spec (swagger v1).
  *
- * Auth: Bearer token obtained from an API key (or login/password), cached until
- * just before expiry. Search is two-step: resolve the article string to article
- * id(s), then fetch prices. Account-scoped AgreementCode / DeliveryAddressCode
- * come from env.
+ * Auth: Bearer token from an API key (form-urlencoded), cached until expiry.
+ * Search: GET /articles/search (filtered by tradeMarkNames) -> articleId(s),
+ * then POST /prices/search/with_article_info with [{articleId, includeAnalogs}].
+ * Order: POST /orders/byPriceItems with priceItems[{priceId, quantity}].
+ * Returns: GET-only return endpoints exist, but creating a return is not exposed
+ * -> requestReturn stays NotImplemented (handle manually).
  *
- * NOTE: response field mapping follows the published docs; verify/adjust against
- * a live response once credentials are available.
+ * NOTE: NODE: api.shate-m.kz requires the corporate VPN; verify live there.
  */
 @Injectable()
 export class ShateMConnector implements SupplierConnector {
@@ -37,24 +39,29 @@ export class ShateMConnector implements SupplierConnector {
 
   private client(): AxiosInstance {
     return axios.create({
-      baseURL: process.env.SHATE_API_URL || 'https://api.shate-m.by',
+      baseURL: process.env.SHATE_API_URL || 'https://api.shate-m.kz',
       timeout: 15000,
-      headers: { 'Content-Type': 'application/json' },
     });
   }
 
   private async getToken(client: AxiosInstance): Promise<string> {
-    // Reuse the cached token until 60s before expiry.
     if (this.token && Date.now() < this.tokenExpiresAt - 60_000) {
       return this.token;
     }
+    const form = new URLSearchParams();
     const apikey = process.env.SHATE_API_KEY;
-    const res = apikey
-      ? await client.post('/api/v1/auth/loginByapiKey', { apikey })
-      : await client.post('/api/v1/auth/login', {
-          login: process.env.SHATE_LOGIN,
-          password: process.env.SHATE_PASSWORD,
-        });
+    let path: string;
+    if (apikey) {
+      path = '/api/v1/auth/loginbyapikey';
+      form.set('ApiKey', apikey);
+    } else {
+      path = '/api/v1/auth/login';
+      form.set('Login', process.env.SHATE_LOGIN || '');
+      form.set('Password', process.env.SHATE_PASSWORD || '');
+    }
+    const res = await client.post(path, form.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
     this.token = res.data?.access_token ?? null;
     this.tokenExpiresAt =
       Date.now() + (Number(res.data?.expires_in) || 3600) * 1000;
@@ -64,100 +71,97 @@ export class ShateMConnector implements SupplierConnector {
 
   async search(article: string, brand?: string): Promise<SupplierOffer[]> {
     const client = this.client();
-    let auth: { headers: { Authorization: string } };
+    let bearer: string;
     try {
-      const token = await this.getToken(client);
-      auth = { headers: { Authorization: `Bearer ${token}` } };
+      bearer = await this.getToken(client);
     } catch (err: any) {
       this.logger.error('SHATE-M auth failed', err?.message);
       throw new BadRequestException('External parts API is unavailable.');
     }
+    const auth = { headers: { Authorization: `Bearer ${bearer}` } };
 
     try {
-      // 1) Resolve the article string to article id(s).
-      const ares = await client.get(
-        `/api/v1/articles/search/${encodeURIComponent(article)}`,
-        auth,
-      );
-      const articles: any[] = Array.isArray(ares.data)
-        ? ares.data
-        : ares.data?.items ?? ares.data?.result ?? [];
-      const wantBrand = brand ? this.normalize(brand) : null;
-      const wanted = wantBrand
-        ? articles.filter((a) => this.normalize(a?.tradeMarkName) === wantBrand)
-        : articles;
-      const ids = [...new Set(wanted.map((a) => a?.id).filter(Boolean))];
+      // 1) Resolve article string -> article id(s), filtered by brand if given.
+      const ares = await client.get('/api/v1/articles/search', {
+        ...auth,
+        params: {
+          searchString: article,
+          ...(brand ? { tradeMarkNames: brand } : {}),
+        },
+      });
+      const cards: any[] = Array.isArray(ares.data) ? ares.data : [];
+      const ids = [
+        ...new Set(cards.map((c) => c?.article?.id).filter((v) => v != null)),
+      ];
       if (!ids.length) return [];
 
-      // 2) Fetch prices per article id (with analogs).
-      const offers: SupplierOffer[] = [];
-      for (const articleId of ids) {
-        const pres = await client.post(
-          '/api/v1/prices/search/with_article_info',
-          {
-            ArticleId: articleId,
-            IncludeAnalogs: true,
-            AgreementCode: process.env.SHATE_AGREEMENT_CODE,
-            DeliveryAddressCode: process.env.SHATE_DELIVERY_ADDRESS_CODE,
+      // 2) One price call for all article ids (with analogs).
+      const pres = await client.post(
+        '/api/v1/prices/search/with_article_info',
+        ids.map((articleId) => ({ articleId, includeAnalogs: true })),
+        {
+          ...auth,
+          params: {
+            AgreementCode: process.env.SHATE_AGREEMENT_CODE || undefined,
+            DeliveryAddressCode:
+              process.env.SHATE_DELIVERY_ADDRESS_CODE || undefined,
           },
-          auth,
-        );
-        offers.push(...this.mapOffers(pres.data, article, brand));
-      }
-      return offers;
+        },
+      );
+      return this.mapOffers(pres.data, article, brand);
     } catch (err: any) {
       this.logger.error('SHATE-M search failed', err?.message);
       throw new BadRequestException('External parts API is unavailable.');
     }
   }
 
-  /** Public for unit testing without a live HTTP call. */
+  /** Public for unit testing. Response = array of ArticlePriceCard. */
   mapOffers(data: any, article: string, brand?: string): SupplierOffer[] {
-    const groups: any[] = Array.isArray(data)
-      ? data
-      : data?.items ?? data?.result ?? [];
+    const cards: any[] = Array.isArray(data) ? data : data?.items ?? [];
     const wantArticle = this.normalize(article);
     const wantBrand = brand ? this.normalize(brand) : null;
     const offers: SupplierOffer[] = [];
 
-    for (const group of groups) {
-      // A group is either a price line, or { article, prices:[...] }.
-      const art = group?.article ?? group;
-      const lines: any[] = group?.prices ?? group?.items ?? [group];
+    for (const card of cards) {
+      const art = card?.article ?? {};
       const artCode = String(art?.code ?? article);
       const artBrand = String(art?.tradeMarkName ?? brand ?? '');
-      const name = String(art?.name ?? art?.description ?? '');
-      const articleId = art?.id;
+      const name = String(art?.name ?? '');
       const isAnalog = !(
         this.normalize(artCode) === wantArticle &&
         (wantBrand === null || this.normalize(artBrand) === wantBrand)
       );
 
-      for (const line of lines) {
+      for (const line of card?.prices ?? []) {
         if (!line) continue;
-        const priceId = line?.id ?? line?.priceId ?? null;
-        const locationCode = String(line?.locationCode ?? line?.locationCodeReal ?? '');
+        const priceId = line?.id ?? null;
+        const locationCode = String(
+          line?.locationCode ?? line?.locationCodeReal ?? '',
+        );
         offers.push({
           supplierCode: this.code,
           article: artCode,
           brand: artBrand,
           name,
-          // price.value is the cost; valueWithMargin is the supplier's own margin.
-          costPrice: this.toNumber(line?.price?.value ?? line?.price),
-          count: this.toNumber(line?.quantity?.available ?? line?.quantity),
-          deliveryDays: this.deliveryDays(line?.deliveryDateTimes),
+          // price.value = base (cost); price.valueWithMargin includes our own
+          // configured margin and is kept in raw for reference.
+          costPrice: this.toNumber(line?.price?.value),
+          count: this.toNumber(line?.quantity?.available),
+          deliveryDays: this.deliveryDays(line),
           multiplicity: this.toNumber(line?.quantity?.multiplicity) || 1,
           warehouseId: locationCode,
           isAnalog,
           raw: {
-            // Stable orderable identity (byPriceItems needs priceId).
-            offerKey: `${priceId ?? `${articleId}|${locationCode}`}`,
+            // ArticlePrice.id is the orderable price line id (byPriceItems).
+            offerKey: `${priceId ?? `${art?.id}|${locationCode}`}`,
             queryArticle: article,
             queryBrand: brand ?? null,
             priceId,
-            articleId,
+            articleId: art?.id,
             locationCode,
-            price: this.toNumber(line?.price?.value ?? line?.price),
+            price: this.toNumber(line?.price?.value),
+            valueWithMargin: this.toNumber(line?.price?.valueWithMargin),
+            isReturnAllowed: line?.addInfo?.isReturnAllowed ?? null,
           },
         });
       }
@@ -167,10 +171,9 @@ export class ShateMConnector implements SupplierConnector {
 
   async placeOrder(items: PlaceOrderItem[]): Promise<SupplierOrderResult> {
     const client = this.client();
-    let auth: { headers: { Authorization: string } };
+    let bearer: string;
     try {
-      const token = await this.getToken(client);
-      auth = { headers: { Authorization: `Bearer ${token}` } };
+      bearer = await this.getToken(client);
     } catch (err: any) {
       return { externalOrderId: null, status: 'FAILED', errorMessage: err?.message };
     }
@@ -179,12 +182,19 @@ export class ShateMConnector implements SupplierConnector {
         '/api/v1/orders/byPriceItems',
         {
           agreementCode: process.env.SHATE_AGREEMENT_CODE,
+          deliveryInfo: {
+            deliveryType: process.env.SHATE_DELIVERY_TYPE || undefined,
+            deliveryAddressCode:
+              process.env.SHATE_DELIVERY_ADDRESS_CODE || undefined,
+          },
+          agreeWithTermsOfDelivery: true,
+          agreeWithPersonalDataProcessingPolicyAndUserAgreement: true,
           priceItems: items.map((i) => ({
             priceId: (i.raw as any)?.priceId,
             quantity: i.quantity,
           })),
         },
-        auth,
+        { headers: { Authorization: `Bearer ${bearer}` } },
       );
       const externalOrderId =
         res.data?.id ?? res.data?.orderId ?? (typeof res.data === 'string' ? res.data : null);
@@ -194,7 +204,8 @@ export class ShateMConnector implements SupplierConnector {
       return {
         externalOrderId: null,
         status: 'FAILED',
-        errorMessage: err?.response?.data?.message || err?.message || 'SHATE-M order failed.',
+        errorMessage:
+          err?.response?.data?.description || err?.message || 'SHATE-M order failed.',
       };
     }
   }
@@ -204,18 +215,16 @@ export class ShateMConnector implements SupplierConnector {
   ): Promise<SupplierOrderStatusValue> {
     const client = this.client();
     try {
-      const token = await this.getToken(client);
+      const bearer = await this.getToken(client);
       const res = await client.get('/api/v1/orders', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${bearer}` },
         params: { orderId: externalOrderId },
       });
-      const orders: any[] = Array.isArray(res.data)
-        ? res.data
-        : res.data?.items ?? [];
-      const order = orders.find(
+      const items: any[] = Array.isArray(res.data) ? res.data : res.data?.items ?? [];
+      const row = items.find(
         (o) => String(o?.id ?? o?.orderId) === String(externalOrderId),
       );
-      return this.mapStatus(order?.statusCode ?? order?.items?.[0]?.statusCode);
+      return this.mapStatus(row?.status?.code ?? row?.statusCode);
     } catch (err: any) {
       this.logger.error('SHATE-M getOrderStatus failed', err?.message);
       throw new BadRequestException('External parts API is unavailable.');
@@ -227,14 +236,13 @@ export class ShateMConnector implements SupplierConnector {
     _items: ReturnItem[],
   ): Promise<ReturnResult> {
     throw new NotImplementedException(
-      'SHATE-M has no return API — handle the return manually.',
+      'SHATE-M return creation is not exposed via API — handle manually.',
     );
   }
 
-  /** Map SHATE-M numeric statusCode to our internal status (provisional). */
+  /** Map SHATE-M numeric order-item status code (provisional — refine via /orderitemstatuscodes). */
   mapStatus(code: any): SupplierOrderStatusValue {
     const c = Number(code);
-    // Provisional mapping; refine against /api/v1/orderItemStatusCodes.
     if (!Number.isFinite(c)) return 'PLACED';
     if (c >= 90) return 'DELIVERED';
     if (c >= 70) return 'SHIPPED';
@@ -243,9 +251,10 @@ export class ShateMConnector implements SupplierConnector {
     return 'PLACED';
   }
 
-  private deliveryDays(deliveryDateTimes: any): number {
-    const first = Array.isArray(deliveryDateTimes) ? deliveryDateTimes[0] : null;
-    const dt = first?.deliveryDateTime ?? first;
+  private deliveryDays(line: any): number {
+    const arr = line?.deliveryDateTimes;
+    const first = Array.isArray(arr) ? arr[0] : null;
+    const dt = first?.deliveryDateTime ?? first ?? line?.shippingDateTime;
     if (!dt) return 0;
     const days = Math.ceil(
       (new Date(dt).getTime() - Date.now()) / (24 * 60 * 60 * 1000),
