@@ -96,3 +96,39 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+## Поставщики (агрегатор)
+
+Бэкенд работает как агрегатор предложений партнёров-поставщиков. Каждый партнёр
+подключается через **коннектор** — класс, реализующий контракт
+`SupplierConnector` (`src/suppliers/supplier-connector.interface.ts`). Коннектор
+инкапсулирует протокол партнёра (SOAP/REST/прайс) и наружу отдаёт только
+нормализованные типы из `src/suppliers/types.ts` (`SupplierOffer` и др.).
+
+### Как добавить нового партнёра
+
+1. **Создать коннектор:** `src/suppliers/connectors/<partner>/<partner>.connector.ts`,
+   класс с `@Injectable()`, реализующий `SupplierConnector`
+   (`code`, `name`, `search`, `placeOrder`, `getOrderStatus`, `requestReturn`).
+   Методы, недоступные у партнёра, бросают `NotImplementedException`.
+2. **Зарегистрировать в провайдерах `SUPPLIERS`:** в `src/suppliers/suppliers.module.ts`
+   добавить класс в `providers` и в фабрику токена `SUPPLIERS`
+   (`useFactory: (rossko, partner) => [rossko, partner]`, `inject: [...]`).
+3. **Завести запись в таблице `suppliers`:** строка с `code` партнёра, `name`,
+   `isActive`, опциональным `markupPercent` (миграцией или через
+   `PATCH /api/suppliers/:code`). Секреты (ключи API) — в `.env`, не в БД.
+
+Ядро (`SuppliersRegistry`, `SearchService`, `PricingService`) трогать не нужно —
+реестр сам подхватит активный коннектор.
+
+### Наценка (pricing)
+
+`PricingService.applyMarkup(costPrice, supplierCode)` превращает закупочную цену в
+продажную: `sellPrice = round(costPrice * (1 + markup/100))`. `markup` берётся из
+`suppliers.markupPercent` партнёра, иначе из `DEFAULT_MARKUP_PERCENT` (`.env`).
+Закупочная цена клиенту никогда не отдаётся.
+
+### API-документация
+
+Swagger доступен по `/api/docs` (UI) и `/api/docs-json` (OpenAPI JSON),
+генерируется из аннотаций контроллеров/DTO. Эталон — контроллер `/api/suppliers`.
