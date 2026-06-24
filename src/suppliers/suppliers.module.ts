@@ -5,9 +5,11 @@ import { SuppliersService } from './suppliers.service';
 import { SuppliersRegistry } from './suppliers.registry';
 import { SUPPLIERS } from './supplier-connector.interface';
 import { RosskoConnector } from './connectors/rossko/rossko.connector';
+import { SuppliersController } from './suppliers.controller';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Supplier])],
+  controllers: [SuppliersController],
   providers: [
     SuppliersService,
     SuppliersRegistry,
