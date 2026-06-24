@@ -119,10 +119,60 @@ export class RosskoConnector implements SupplierConnector {
     return offers;
   }
 
-  async placeOrder(_items: PlaceOrderItem[]): Promise<SupplierOrderResult> {
-    throw new NotImplementedException(
-      'Rossko placeOrder is not yet implemented — order requires manual processing (see Spec C).',
-    );
+  async placeOrder(items: PlaceOrderItem[]): Promise<SupplierOrderResult> {
+    const soap = this.buildCheckoutEnvelope(items);
+    let rawXml: string;
+    try {
+      const response = await axios.post(
+        `${process.env.ROSSKO_API_URL}/service/v2.1/GetCheckout`,
+        soap,
+        {
+          headers: {
+            'Content-Type': 'text/xml; charset=utf-8',
+            SOAPAction: 'https://api.rossko.ru/service/v2.1/GetCheckout',
+          },
+          timeout: 20000,
+        },
+      );
+      rawXml = response.data;
+    } catch (err: any) {
+      this.logger.error('Rossko GetCheckout failed', err?.message);
+      return {
+        externalOrderId: null,
+        status: 'FAILED',
+        errorMessage: 'Rossko order request failed.',
+      };
+    }
+    return this.parseCheckout(rawXml);
+  }
+
+  /** Public for unit testing without a live SOAP call. */
+  parseCheckout(xml: string): SupplierOrderResult {
+    const parsed = this.parser.parse(xml);
+    const result =
+      parsed?.Envelope?.Body?.GetCheckoutResponse?.CheckoutResult ?? {};
+    const success =
+      result.success === true || result.success === 'true';
+    // Order number(s) can live under a few shapes; collect what we find.
+    const orderNumbers: string[] = [];
+    const orders = result?.orders?.order ?? result?.order ?? null;
+    if (Array.isArray(orders)) {
+      for (const o of orders) orderNumbers.push(String(o?.number ?? o?.id ?? o));
+    } else if (orders) {
+      orderNumbers.push(String(orders?.number ?? orders?.id ?? orders));
+    }
+    const externalOrderId =
+      orderNumbers.filter(Boolean).join(',') ||
+      (result.number != null ? String(result.number) : null);
+
+    if (!success && !externalOrderId) {
+      return {
+        externalOrderId: null,
+        status: 'FAILED',
+        errorMessage: String(result.message ?? 'Rossko order rejected.'),
+      };
+    }
+    return { externalOrderId, status: 'PLACED' };
   }
 
   async getOrderStatus(_externalOrderId: string): Promise<SupplierOrderStatusValue> {
@@ -160,6 +210,52 @@ export class RosskoConnector implements SupplierConnector {
       <tns:delivery_id>${process.env.ROSSKO_DELIVERY_ID}</tns:delivery_id>
       <tns:address_id>${process.env.ROSSKO_ADDRESS_ID}</tns:address_id>
     </tns:GetSearch>
+  </soap:Body>
+</soap:Envelope>`;
+  }
+
+  /** Build the GetCheckout SOAP envelope (order placement). */
+  buildCheckoutEnvelope(items: PlaceOrderItem[]): string {
+    const parts = items
+      .map((i) => {
+        const raw = (i.raw ?? {}) as Record<string, unknown>;
+        const partnumber = String(raw.partnumber ?? i.article);
+        const stock = String(raw.stockId ?? i.warehouseId);
+        return `      <tns:Part>
+        <tns:partnumber>${this.escapeXml(partnumber)}</tns:partnumber>
+        <tns:brand>${this.escapeXml(i.brand)}</tns:brand>
+        <tns:stock>${this.escapeXml(stock)}</tns:stock>
+        <tns:count>${this.toNumber(i.quantity)}</tns:count>
+      </tns:Part>`;
+      })
+      .join('\n');
+    const requisite = process.env.ROSSKO_REQUISITE_ID
+      ? `<tns:requisite_id>${process.env.ROSSKO_REQUISITE_ID}</tns:requisite_id>`
+      : '';
+    const deliveryParts = process.env.ROSSKO_DELIVERY_PARTS === 'false' ? 'false' : 'true';
+    return `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <tns:GetCheckout xmlns:tns="https://api.rossko.ru/">
+      <tns:KEY1>${process.env.ROSSKO_KEY1}</tns:KEY1>
+      <tns:KEY2>${process.env.ROSSKO_KEY2}</tns:KEY2>
+      <tns:delivery>
+        <tns:delivery_id>${process.env.ROSSKO_DELIVERY_ID}</tns:delivery_id>
+        <tns:address_id>${process.env.ROSSKO_ADDRESS_ID}</tns:address_id>
+      </tns:delivery>
+      <tns:payment>
+        <tns:payment_id>${process.env.ROSSKO_PAYMENT_ID || '2'}</tns:payment_id>
+        ${requisite}
+      </tns:payment>
+      <tns:contact>
+        <tns:name>${this.escapeXml(process.env.ROSSKO_CONTACT_NAME || '')}</tns:name>
+        <tns:phone>${this.escapeXml(process.env.ROSSKO_CONTACT_PHONE || '')}</tns:phone>
+      </tns:contact>
+      <tns:delivery_parts>${deliveryParts}</tns:delivery_parts>
+      <tns:PARTS>
+${parts}
+      </tns:PARTS>
+    </tns:GetCheckout>
   </soap:Body>
 </soap:Envelope>`;
   }

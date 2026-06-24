@@ -1,4 +1,3 @@
-import { NotImplementedException } from '@nestjs/common';
 import { RosskoConnector } from './rossko.connector';
 
 // Minimal SOAP fixture mirroring the real shape: SearchResult.PartsList.Part[]
@@ -85,12 +84,6 @@ describe('RosskoConnector.parseOffers', () => {
     expect(exactMatch?.isAnalog).toBe(false);
   });
 
-  it('placeOrder is not implemented yet', async () => {
-    await expect(connector.placeOrder([])).rejects.toBeInstanceOf(
-      NotImplementedException,
-    );
-  });
-
   it('coerces missing numeric stock tags to 0 instead of NaN', () => {
     const xmlWithMissingPrice = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
@@ -125,5 +118,60 @@ describe('RosskoConnector.parseOffers', () => {
     const offer = offers[0];
     expect(Number.isNaN(offer.costPrice)).toBe(false);
     expect(offer.costPrice).toBe(0);
+  });
+});
+
+describe('RosskoConnector checkout (order placement)', () => {
+  const connector = new RosskoConnector();
+
+  it('builds a GetCheckout envelope with PARTS from cart items', () => {
+    const xml = connector.buildCheckoutEnvelope([
+      {
+        article: 'PH6811',
+        brand: 'Fram',
+        warehouseId: 'HST1',
+        quantity: 2,
+        raw: { partnumber: 'PH6811', stockId: 'HST1' },
+      },
+    ]);
+    expect(xml).toContain('<tns:GetCheckout');
+    expect(xml).toContain('<tns:partnumber>PH6811</tns:partnumber>');
+    expect(xml).toContain('<tns:brand>Fram</tns:brand>');
+    expect(xml).toContain('<tns:stock>HST1</tns:stock>');
+    expect(xml).toContain('<tns:count>2</tns:count>');
+  });
+
+  it('parses a successful checkout response', () => {
+    const xml = `<?xml version="1.0"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <ns:GetCheckoutResponse xmlns:ns="https://api.rossko.ru/">
+      <ns:CheckoutResult>
+        <ns:success>true</ns:success>
+        <ns:orders><ns:order><ns:number>RK-123</ns:number></ns:order></ns:orders>
+      </ns:CheckoutResult>
+    </ns:GetCheckoutResponse>
+  </soap:Body>
+</soap:Envelope>`;
+    const res = connector.parseCheckout(xml);
+    expect(res.status).toBe('PLACED');
+    expect(res.externalOrderId).toBe('RK-123');
+  });
+
+  it('parses a failed checkout response', () => {
+    const xml = `<?xml version="1.0"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <ns:GetCheckoutResponse xmlns:ns="https://api.rossko.ru/">
+      <ns:CheckoutResult>
+        <ns:success>false</ns:success>
+        <ns:message>Insufficient funds</ns:message>
+      </ns:CheckoutResult>
+    </ns:GetCheckoutResponse>
+  </soap:Body>
+</soap:Envelope>`;
+    const res = connector.parseCheckout(xml);
+    expect(res.status).toBe('FAILED');
+    expect(res.errorMessage).toContain('Insufficient');
   });
 });
