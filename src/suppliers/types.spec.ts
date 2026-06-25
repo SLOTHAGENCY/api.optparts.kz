@@ -13,6 +13,7 @@ describe('suppliers types', () => {
       brand: 'BOSCH',
       name: 'Filter',
       costPrice: 5200,
+      currency: 'RUB',
       count: 10,
       deliveryDays: 3,
       multiplicity: 1,

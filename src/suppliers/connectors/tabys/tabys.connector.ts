@@ -98,6 +98,7 @@ export class TabysConnector implements SupplierConnector {
           brand: itemBrand,
           name,
           costPrice: this.toNumber(offer?.price),
+          currency: 'KZT',
           count: this.toNumber(offer?.amount),
           deliveryDays: this.toNumber(offer?.deliveryInfo?.workDays),
           multiplicity: this.toNumber(offer?.minPackSize) || 1,

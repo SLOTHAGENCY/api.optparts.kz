@@ -146,6 +146,7 @@ export class ShateMConnector implements SupplierConnector {
           // price.value = base (cost); price.valueWithMargin includes our own
           // configured margin and is kept in raw for reference.
           costPrice: this.toNumber(line?.price?.value),
+          currency: 'KZT',
           count: this.toNumber(line?.quantity?.available),
           deliveryDays: this.deliveryDays(line),
           multiplicity: this.toNumber(line?.quantity?.multiplicity) || 1,

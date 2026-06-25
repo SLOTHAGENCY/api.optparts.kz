@@ -10,6 +10,7 @@ function offer(over: Partial<SupplierOffer>): SupplierOffer {
     brand: 'B',
     name: 'Thing',
     costPrice: 1000,
+    currency: 'KZT',
     count: 5,
     deliveryDays: 3,
     multiplicity: 1,

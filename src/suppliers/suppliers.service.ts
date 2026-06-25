@@ -26,6 +26,7 @@ export class SuppliersService {
     }
     if (dto.isActive !== undefined) supplier.isActive = dto.isActive;
     if (dto.markupPercent !== undefined) supplier.markupPercent = dto.markupPercent;
+    if (dto.currency !== undefined) supplier.currency = dto.currency;
     if (dto.config !== undefined) supplier.config = dto.config;
     return this.repo.save(supplier);
   }

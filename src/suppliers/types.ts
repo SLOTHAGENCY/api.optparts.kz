@@ -4,6 +4,7 @@ export interface SupplierOffer {
   brand: string;
   name: string;
   costPrice: number;
+  currency: string;
   count: number;
   deliveryDays: number;
   multiplicity: number;

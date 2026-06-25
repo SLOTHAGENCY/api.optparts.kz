@@ -43,6 +43,10 @@ export class Supplier {
   })
   markupPercent: number | null;
 
+  @ApiProperty({ example: 'KZT', nullable: true, description: 'ISO-4217 currency code for this supplier' })
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  currency: string | null;
+
   @ApiProperty({ example: {}, description: 'Non-sensitive partner config' })
   @Column({ type: 'jsonb', default: () => "'{}'" })
   config: Record<string, unknown>;

@@ -93,6 +93,7 @@ export class RosskoConnector implements SupplierConnector {
             brand: crossBrand,
             name: String(cross.name ?? ''),
             costPrice: this.toNumber(stock.price),
+            currency: 'RUB',
             count: this.toNumber(stock.count),
             deliveryDays: this.toNumber(stock.delivery),
             multiplicity: this.toNumber(stock.multiplicity),

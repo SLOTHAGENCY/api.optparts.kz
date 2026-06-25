@@ -1,4 +1,4 @@
-import { IsBoolean, IsNumber, IsObject, IsOptional, Max, Min } from 'class-validator';
+import { IsBoolean, IsNumber, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateSupplierDto {
@@ -18,6 +18,11 @@ export class UpdateSupplierDto {
   @Min(0)
   @Max(1000)
   markupPercent?: number | null;
+
+  @ApiPropertyOptional({ description: 'ISO-4217 currency code for this supplier', example: 'KZT' })
+  @IsOptional()
+  @IsString()
+  currency?: string;
 
   @ApiPropertyOptional({ description: 'Non-sensitive partner config (URLs etc.)' })
   @IsOptional()

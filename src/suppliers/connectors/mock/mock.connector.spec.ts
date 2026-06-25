@@ -7,6 +7,7 @@ const offer: SupplierOffer = {
   brand: 'B',
   name: 'thing',
   costPrice: 1000,
+  currency: 'KZT',
   count: 5,
   deliveryDays: 2,
   multiplicity: 1,

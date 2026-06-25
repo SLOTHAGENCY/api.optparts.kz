@@ -9,6 +9,7 @@ function makeOffer(partial: Partial<SupplierOffer> = {}): SupplierOffer {
     brand: 'BR',
     name: 'Part',
     costPrice: 100,
+    currency: 'KZT',
     count: 10,
     deliveryDays: 3,
     multiplicity: 1,

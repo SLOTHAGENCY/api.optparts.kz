@@ -119,6 +119,7 @@ export class AutotradeConnector implements SupplierConnector {
           brand: artBrand,
           name,
           costPrice: price,
+          currency: String(entry?.currency ?? 'KZT'),
           count: qty,
           deliveryDays: qty > 0 ? 0 : deliveryPeriod,
           multiplicity: 1,
