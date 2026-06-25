@@ -10,6 +10,7 @@ import { PartnerProductsModule } from '../partner-products/partner-products.modu
 import { CartModule } from '../cart/cart.module';
 import { CartService } from '../cart/cart.service';
 import { CART_CHECKOUT } from './cart-checkout.contract';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { CART_CHECKOUT } from './cart-checkout.contract';
     SuppliersModule,
     PartnerProductsModule,
     CartModule,
+    SettingsModule,
   ],
   providers: [
     OrdersService,

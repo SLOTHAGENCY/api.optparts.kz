@@ -21,6 +21,7 @@ import {
 } from './cart-checkout.contract';
 import { SuppliersRegistry } from '../suppliers/suppliers.registry';
 import { PartnerProductsService } from '../partner-products/partner-products.service';
+import { SettingsService } from '../settings/settings.service';
 import {
   PlaceOrderItem,
   ReturnItem,
@@ -51,6 +52,7 @@ export class OrdersService {
     private readonly cart: CartCheckoutContract,
     private readonly suppliersRegistry: SuppliersRegistry,
     private readonly partnerProducts: PartnerProductsService,
+    private readonly settings: SettingsService,
   ) {}
 
   // ---- Reads ----
@@ -108,11 +110,14 @@ export class OrdersService {
       });
     }
 
+    const isTest = (await this.settings.getOrderMode()) === 'test';
+
     // §4.3 — create Order + immutable order_item snapshots (prices from currentPrice).
     const order = this.orderRepo.create({
       userId,
       addressId: dto.addressId ?? null,
       status: OrderStatus.NEW,
+      isTest,
       totalAmount: items.reduce(
         (sum, i) => sum + i.currentPrice * i.quantity,
         0,
@@ -131,11 +136,13 @@ export class OrdersService {
     const subOrders: SupplierOrder[] = [];
     for (const [supplierCode, groupItems] of groups) {
       subOrders.push(
-        await this.placeSupplierOrder(saved.id, supplierCode, groupItems),
+        await this.placeSupplierOrder(saved.id, supplierCode, groupItems, isTest),
       );
     }
     saved.supplierOrders = subOrders;
-    saved.status = aggregateOrderStatus(subOrders.map((s) => s.status));
+    saved.status = isTest
+      ? OrderStatus.NEW
+      : aggregateOrderStatus(subOrders.map((s) => s.status));
     await this.orderRepo.save(saved);
 
     // §4.7 — analytics upsert + clear cart.
@@ -178,6 +185,7 @@ export class OrdersService {
     orderId: string,
     supplierCode: string,
     items: CheckoutItem[],
+    isTest = false,
   ): Promise<SupplierOrder> {
     const sub = this.supplierOrderRepo.create({
       orderId,
@@ -187,7 +195,12 @@ export class OrdersService {
       errorMessage: null,
       returnStatus: null,
       externalReturnId: null,
+      isTest,
     });
+    if (isTest) {
+      // Test mode: persist the sub-order without contacting the partner.
+      return this.supplierOrderRepo.save(sub);
+    }
     try {
       const connector = await this.suppliersRegistry.getByCode(supplierCode);
       const result = await connector.placeOrder(this.toPlaceOrderItems(items));

@@ -22,7 +22,11 @@ function makeCheckoutItem(over: Partial<any> = {}) {
   };
 }
 
-function makeDeps(items: any[], connectorByCode: Record<string, MockConnector>) {
+function makeDeps(
+  items: any[],
+  connectorByCode: Record<string, MockConnector>,
+  mode: 'test' | 'prod' = 'prod',
+) {
   const saved: any[] = [];
   const orderRepo = {
     create: jest.fn((data: any) => ({ ...data })),
@@ -50,14 +54,16 @@ function makeDeps(items: any[], connectorByCode: Record<string, MockConnector>) 
     getByCode: jest.fn(async (code: string) => connectorByCode[code]),
   };
   const partnerProducts = { recordOrder: jest.fn(async () => undefined) };
+  const settings = { getOrderMode: jest.fn(async () => mode) };
   const service = new OrdersService(
     orderRepo as any,
     supplierOrderRepo as any,
     cart as any,
     registry as any,
     partnerProducts as any,
+    settings as any,
   );
-  return { service, orderRepo, supplierOrderRepo, cart, registry, partnerProducts };
+  return { service, orderRepo, supplierOrderRepo, cart, registry, partnerProducts, settings };
 }
 
 describe('aggregateOrderStatus', () => {
@@ -121,6 +127,29 @@ describe('OrdersService.create', () => {
     expect(failed.errorMessage).toBeTruthy();
   });
 
+  it('test mode: does not call placeOrder; saves order+sub as NEW and isTest', async () => {
+    const mock = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const spy = jest.spyOn(mock, 'placeOrder');
+    const { service, cart, partnerProducts } = makeDeps(
+      [makeCheckoutItem()],
+      { mock },
+      'test',
+    );
+    const order = await service.create('u1', {});
+    expect(spy).not.toHaveBeenCalled();
+    expect(order.isTest).toBe(true);
+    expect(order.status).toBe(OrderStatus.NEW);
+    expect(order.supplierOrders).toHaveLength(1);
+    expect(order.supplierOrders[0].status).toBe('NEW');
+    expect(order.supplierOrders[0].externalOrderId).toBeNull();
+    expect(order.supplierOrders[0].isTest).toBe(true);
+    expect(partnerProducts.recordOrder).toHaveBeenCalledTimes(1);
+    expect(cart.clearCart).toHaveBeenCalledWith('u1');
+  });
+
   it('snapshots order items independent of live offers', async () => {
     const mock = new MockConnector().setOrderResult({
       externalOrderId: 'EXT-1',
@@ -163,6 +192,7 @@ describe('OrdersService manager controls', () => {
       { getCheckoutItems: jest.fn(), clearCart: jest.fn() } as any,
       { getByCode: jest.fn(async () => connector) } as any,
       { recordOrder: jest.fn() } as any,
+      { getOrderMode: jest.fn(async () => 'prod') } as any,
     );
     return { service, order, orderRepo, supplierOrderRepo };
   }
