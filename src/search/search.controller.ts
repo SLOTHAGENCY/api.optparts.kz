@@ -20,6 +20,7 @@ import { User } from '../users/entities/user.entity';
 import { SearchService } from './search.service';
 import { SearchResponseDto } from './dto/search-response.dto';
 import { HistoryQueryDto, HistoryResponseDto } from './dto/search-history.dto';
+import { SearchFilterDto } from './dto/search-filter.dto';
 
 @ApiTags('search')
 @Controller('search')
@@ -34,10 +35,16 @@ export class SearchController {
   @ApiOperation({ summary: 'Live multi-supplier search by article (+ optional brand)' })
   @ApiQuery({ name: 'article', required: true, example: '0451103316' })
   @ApiQuery({ name: 'brand', required: false, example: 'BOSCH' })
+  @ApiQuery({ name: 'priceMin', required: false, example: 1000 })
+  @ApiQuery({ name: 'priceMax', required: false, example: 9000 })
+  @ApiQuery({ name: 'inStock', required: false, example: true })
+  @ApiQuery({ name: 'maxDeliveryDays', required: false, example: 5 })
+  @ApiQuery({ name: 'suppliers', required: false, example: 'rossko,tabys' })
   @ApiOkResponse({ type: SearchResponseDto })
   async search(
     @Query('article') article: string,
     @Query('brand') brand: string | undefined,
+    @Query() filter: SearchFilterDto,
     @CurrentUser() user: User | undefined,
   ): Promise<SearchResponseDto> {
     if (!article || !article.trim()) {
@@ -47,6 +54,7 @@ export class SearchController {
       article.trim(),
       brand?.trim() || undefined,
       user?.id,
+      filter,
     );
   }
 

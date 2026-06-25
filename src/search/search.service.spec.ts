@@ -156,3 +156,44 @@ describe('SearchService.search', () => {
     expect(svc.withBuffer(3, 'tabys', new Map([['tabys', null]]), 1)).toBe(4); // null => global
   });
 });
+
+describe('SearchService.applyFilters', () => {
+  const svc = Object.create(SearchService.prototype) as any;
+  const group = (brand: string, offers: any[]) => ({ article: 'A', brand, name: 'n', offers });
+  const groups = () => [
+    group('BOSCH', [
+      { supplierCode: 'rossko', sellPrice: 1000, deliveryDays: 2, count: 5 },
+      { supplierCode: 'tabys', sellPrice: 3000, deliveryDays: 10, count: 0 },
+    ]),
+    group('MANN', [
+      { supplierCode: 'rossko', sellPrice: 5000, deliveryDays: 1, count: 3 },
+    ]),
+  ];
+
+  it('filters by price range and drops empty groups', () => {
+    const out = svc.applyFilters(groups(), { priceMin: 0, priceMax: 1500 });
+    expect(out).toHaveLength(1);
+    expect(out[0].brand).toBe('BOSCH');
+    expect(out[0].offers).toHaveLength(1);
+  });
+
+  it('filters by inStock', () => {
+    const out = svc.applyFilters(groups(), { inStock: true });
+    expect(out.flatMap((g: any) => g.offers).every((o: any) => o.count > 0)).toBe(true);
+  });
+
+  it('filters by maxDeliveryDays and supplier', () => {
+    const out = svc.applyFilters(groups(), { maxDeliveryDays: 3, suppliers: ['rossko'] });
+    expect(out.flatMap((g: any) => g.offers)).toHaveLength(2);
+  });
+
+  it('filters by brand', () => {
+    const out = svc.applyFilters(groups(), { brand: 'mann' });
+    expect(out).toHaveLength(1);
+    expect(out[0].brand).toBe('MANN');
+  });
+
+  it('returns all groups when filter is empty', () => {
+    expect(svc.applyFilters(groups(), {})).toHaveLength(2);
+  });
+});

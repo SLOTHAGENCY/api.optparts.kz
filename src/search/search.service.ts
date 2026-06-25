@@ -15,6 +15,7 @@ import { User, UserRole } from '../users/entities/user.entity';
 import { HistoryQueryDto, HistoryResponseDto } from './dto/search-history.dto';
 import { SettingsService } from '../settings/settings.service';
 import { SuppliersService } from '../suppliers/suppliers.service';
+import { SearchFilterDto } from './dto/search-filter.dto';
 
 const DEFAULT_SEARCH_TIMEOUT_MS = 8000;
 
@@ -45,6 +46,7 @@ export class SearchService {
     article: string,
     brand?: string,
     userId?: string,
+    filter?: SearchFilterDto,
   ): Promise<SearchResponseDto> {
     const connectors = await this.registry.getActive();
     const suppliersQueried = connectors.length;
@@ -84,7 +86,9 @@ export class SearchService {
       ),
     );
 
-    const { exact, analogs } = this.groupAndRank(normalized);
+    const ranked = this.groupAndRank(normalized);
+    const exact = this.applyFilters(ranked.exact, filter ?? {});
+    const analogs = this.applyFilters(ranked.analogs, filter ?? {});
     const totalResults = this.countOffers(exact) + this.countOffers(analogs);
 
     this.logSearch({
@@ -97,6 +101,28 @@ export class SearchService {
     });
 
     return { query: { article, brand: brand ?? null }, exact, analogs };
+  }
+
+  /** Public for unit testing. Filters offers within each group; drops empty groups. */
+  applyFilters(groups: SearchGroupDto[], f: SearchFilterDto): SearchGroupDto[] {
+    const brand = f.brand?.trim().toUpperCase();
+    const suppliers = f.suppliers?.length
+      ? new Set(f.suppliers.map((s) => s.toLowerCase()))
+      : null;
+    const out: SearchGroupDto[] = [];
+    for (const group of groups) {
+      if (brand && group.brand.trim().toUpperCase() !== brand) continue;
+      const offers = group.offers.filter((o) => {
+        if (f.priceMin != null && o.sellPrice < f.priceMin) return false;
+        if (f.priceMax != null && o.sellPrice > f.priceMax) return false;
+        if (f.inStock && !(o.count > 0)) return false;
+        if (f.maxDeliveryDays != null && o.deliveryDays > f.maxDeliveryDays) return false;
+        if (suppliers && !suppliers.has(o.supplierCode.toLowerCase())) return false;
+        return true;
+      });
+      if (offers.length) out.push({ ...group, offers });
+    }
+    return out;
   }
 
   async history(
