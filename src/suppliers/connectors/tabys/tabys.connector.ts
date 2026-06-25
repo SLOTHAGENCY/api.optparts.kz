@@ -14,6 +14,8 @@ import {
   SupplierOrderResult,
   SupplierOrderStatusValue,
 } from '../../types';
+import { resolveConfig, hasKeys } from '../../connector-config.util';
+import { SuppliersService } from '../../suppliers.service';
 
 /**
  * Tabys (api.tabys.parts) REST connector.
@@ -29,6 +31,18 @@ export class TabysConnector implements SupplierConnector {
   readonly name = 'Tabys';
 
   private readonly logger = new Logger(TabysConnector.name);
+
+  private readonly envMap = {
+    API_KEY: 'TABYS_API_KEY', CONTRACT_ID: 'TABYS_CONTRACT_ID',
+    OUTLET_ID: 'TABYS_OUTLET_ID', DELIVERY_TYPE: 'TABYS_DELIVERY_TYPE',
+  };
+
+  constructor(private readonly suppliers: SuppliersService) {}
+
+  async isConfigured(): Promise<boolean> {
+    return hasKeys(await resolveConfig(this.suppliers, this.code, this.envMap),
+      ['API_KEY', 'CONTRACT_ID', 'OUTLET_ID']);
+  }
 
   private http(): AxiosInstance {
     return axios.create({

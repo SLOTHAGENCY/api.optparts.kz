@@ -6,6 +6,7 @@ function fakeConnector(code: string): SupplierConnector {
   return {
     code,
     name: code,
+    isConfigured: jest.fn(async () => true),
     search: jest.fn(),
     placeOrder: jest.fn(),
     getOrderStatus: jest.fn(),
@@ -53,5 +54,19 @@ describe('SuppliersRegistry', () => {
   it('getByCode throws BadRequestException for an inactive supplier', async () => {
     const reg = makeRegistry([{ code: 'emex', isActive: false }]);
     await expect(reg.getByCode('emex')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('getActive skips active-but-unconfigured connectors', async () => {
+    const configured = { code: 'a', name: 'A', isConfigured: async () => true } as any;
+    const unconfigured = { code: 'b', name: 'B', isConfigured: async () => false } as any;
+    const suppliersService = {
+      findAll: async () => [
+        { code: 'a', isActive: true },
+        { code: 'b', isActive: true },
+      ],
+    };
+    const registry = new SuppliersRegistry([configured, unconfigured] as any, suppliersService as any);
+    const active = await registry.getActive();
+    expect(active.map((c: any) => c.code)).toEqual(['a']);
   });
 });

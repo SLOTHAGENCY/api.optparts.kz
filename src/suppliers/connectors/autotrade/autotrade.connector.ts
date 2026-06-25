@@ -15,6 +15,8 @@ import {
   SupplierOrderResult,
   SupplierOrderStatusValue,
 } from '../../types';
+import { resolveConfig, hasKeys } from '../../connector-config.util';
+import { SuppliersService } from '../../suppliers.service';
 
 /**
  * Autotrade (api2.autotrade.su) connector.
@@ -34,6 +36,19 @@ export class AutotradeConnector implements SupplierConnector {
 
   private readonly logger = new Logger(AutotradeConnector.name);
   private static readonly SALT = '1>6)/MI~{J';
+
+  private readonly envMap = {
+    LOGIN: 'AUTOTRADE_LOGIN', PASSWORD: 'AUTOTRADE_PASSWORD',
+    CONTRACT_ID: 'AUTOTRADE_CONTRACT_ID', PAYMENT_TYPE: 'AUTOTRADE_PAYMENT_TYPE',
+    RECEIPT_TYPE: 'AUTOTRADE_RECEIPT_TYPE',
+  };
+
+  constructor(private readonly suppliers: SuppliersService) {}
+
+  async isConfigured(): Promise<boolean> {
+    return hasKeys(await resolveConfig(this.suppliers, this.code, this.envMap),
+      ['LOGIN', 'PASSWORD']);
+  }
 
   private authKey(): string {
     const login = process.env.AUTOTRADE_LOGIN || '';

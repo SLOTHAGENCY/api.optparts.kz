@@ -58,6 +58,8 @@ export class MockConnector implements SupplierConnector {
     return this;
   }
 
+  async isConfigured(): Promise<boolean> { return true; }
+
   async search(_article: string, _brand?: string): Promise<SupplierOffer[]> {
     if (this.error) throw this.error;
     if (this.delayMs > 0) {

@@ -1,7 +1,7 @@
 import { ShateMConnector } from './shatem.connector';
 
 describe('ShateMConnector.mapOffers', () => {
-  const connector = new ShateMConnector();
+  const connector = new ShateMConnector({ findByCode: async () => null } as any);
 
   // Response shape per the live spec: array of ArticlePriceCard { article, prices[] }.
   const sample = [

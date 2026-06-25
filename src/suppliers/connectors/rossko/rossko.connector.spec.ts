@@ -43,7 +43,7 @@ const XML = `<?xml version="1.0" encoding="utf-8"?>
 </soap:Envelope>`;
 
 describe('RosskoConnector.parseOffers', () => {
-  const connector = new RosskoConnector();
+  const connector = new RosskoConnector({ findByCode: async () => null } as any);
 
   it('maps each stock to a SupplierOffer', () => {
     const offers = connector.parseOffers(XML, '0451103316', 'BOSCH');
@@ -123,7 +123,7 @@ describe('RosskoConnector.parseOffers', () => {
 });
 
 describe('RosskoConnector checkout (order placement)', () => {
-  const connector = new RosskoConnector();
+  const connector = new RosskoConnector({ findByCode: async () => null } as any);
 
   it('builds a GetCheckout envelope with PARTS from cart items', () => {
     const xml = connector.buildCheckoutEnvelope([
@@ -178,7 +178,7 @@ describe('RosskoConnector checkout (order placement)', () => {
 });
 
 describe('RosskoConnector order status', () => {
-  const connector = new RosskoConnector();
+  const connector = new RosskoConnector({ findByCode: async () => null } as any);
 
   it('parses order status from GetOrders response', () => {
     const xml = `<?xml version="1.0"?>

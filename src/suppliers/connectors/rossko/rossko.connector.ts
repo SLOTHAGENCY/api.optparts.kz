@@ -15,6 +15,8 @@ import {
   SupplierOrderResult,
   SupplierOrderStatusValue,
 } from '../../types';
+import { resolveConfig, hasKeys } from '../../connector-config.util';
+import { SuppliersService } from '../../suppliers.service';
 
 @Injectable()
 export class RosskoConnector implements SupplierConnector {
@@ -22,6 +24,19 @@ export class RosskoConnector implements SupplierConnector {
   readonly name = 'Rossko';
 
   private readonly logger = new Logger(RosskoConnector.name);
+
+  private readonly envMap = {
+    KEY1: 'ROSSKO_KEY1', KEY2: 'ROSSKO_KEY2',
+    DELIVERY_ID: 'ROSSKO_DELIVERY_ID', ADDRESS_ID: 'ROSSKO_ADDRESS_ID',
+  };
+
+  constructor(private readonly suppliers: SuppliersService) {}
+
+  async isConfigured(): Promise<boolean> {
+    return hasKeys(await resolveConfig(this.suppliers, this.code, this.envMap),
+      ['KEY1', 'KEY2', 'DELIVERY_ID', 'ADDRESS_ID']);
+  }
+
   private readonly parser = new XMLParser({
     ignoreAttributes: false,
     removeNSPrefix: true,

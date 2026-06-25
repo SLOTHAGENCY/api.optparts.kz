@@ -1,7 +1,7 @@
 import { TabysConnector } from './tabys.connector';
 
 describe('TabysConnector.mapOffers', () => {
-  const connector = new TabysConnector();
+  const connector = new TabysConnector({ findByCode: async () => null } as any);
 
   const sample = {
     items: [

@@ -14,7 +14,7 @@ import {
 import { User, UserRole } from '../users/entities/user.entity';
 import { HistoryQueryDto, HistoryResponseDto } from './dto/search-history.dto';
 
-const DEFAULT_SEARCH_TIMEOUT_MS = 15000;
+const DEFAULT_SEARCH_TIMEOUT_MS = 8000;
 
 interface NormalizedOffer {
   article: string;

@@ -11,6 +11,9 @@ export interface SupplierConnector {
   readonly code: string;
   readonly name: string;
 
+  /** True when all required credentials are present (config or env). */
+  isConfigured(): Promise<boolean>;
+
   search(article: string, brand?: string): Promise<SupplierOffer[]>;
   placeOrder(items: PlaceOrderItem[]): Promise<SupplierOrderResult>;
   getOrderStatus(externalOrderId: string): Promise<SupplierOrderStatusValue>;

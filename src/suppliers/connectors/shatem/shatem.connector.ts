@@ -14,6 +14,8 @@ import {
   SupplierOrderResult,
   SupplierOrderStatusValue,
 } from '../../types';
+import { resolveConfig, hasKeys } from '../../connector-config.util';
+import { SuppliersService } from '../../suppliers.service';
 
 /**
  * SHATE-M (api.shate-m.kz) REST connector. Mapping verified against the live
@@ -36,6 +38,20 @@ export class ShateMConnector implements SupplierConnector {
   private readonly logger = new Logger(ShateMConnector.name);
   private token: string | null = null;
   private tokenExpiresAt = 0;
+
+  private readonly envMap = {
+    API_KEY: 'SHATE_API_KEY', LOGIN: 'SHATE_LOGIN', PASSWORD: 'SHATE_PASSWORD',
+    AGREEMENT_CODE: 'SHATE_AGREEMENT_CODE', DELIVERY_ADDRESS_CODE: 'SHATE_DELIVERY_ADDRESS_CODE',
+    DELIVERY_TYPE: 'SHATE_DELIVERY_TYPE',
+  };
+
+  constructor(private readonly suppliers: SuppliersService) {}
+
+  async isConfigured(): Promise<boolean> {
+    const c = await resolveConfig(this.suppliers, this.code, this.envMap);
+    const auth = hasKeys(c, ['API_KEY']) || hasKeys(c, ['LOGIN', 'PASSWORD']);
+    return auth && hasKeys(c, ['AGREEMENT_CODE']);
+  }
 
   private client(): AxiosInstance {
     return axios.create({
