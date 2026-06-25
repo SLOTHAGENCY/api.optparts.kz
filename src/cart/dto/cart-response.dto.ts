@@ -16,6 +16,8 @@ export class CartItemDto {
   @ApiProperty({ description: 'false if partner unavailable or offer gone', example: true })
   available: boolean;
   @ApiProperty({ example: 2 }) quantity: number;
+  @ApiProperty({ description: 'live stock count (0 when unavailable)', example: 10 })
+  maxQuantity: number;
   @ApiProperty({ description: 'currentPrice * quantity', example: 10900 })
   subtotal: number;
 }

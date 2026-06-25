@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Cart } from './entities/cart.entity';
@@ -37,6 +37,7 @@ interface RecheckResult {
   priceChanged: boolean;
   raw: Record<string, unknown>;
   warehouseId: string;
+  count: number;
 }
 
 const DEFAULT_RECHECK_TIMEOUT_MS = 10000;
@@ -82,6 +83,7 @@ export class CartService {
         priceChanged: r.priceChanged,
         available: r.available,
         quantity: r.item.quantity,
+        maxQuantity: r.available ? r.count : 0,
         subtotal,
       };
     });
@@ -153,6 +155,17 @@ export class CartService {
     const cart = await this.getOrCreateCart(userId);
     const item = cart.items?.find((i) => i.id === itemId);
     if (!item) throw new NotFoundException('Cart item not found.');
+
+    const [recheck] = await this.recheckAll([item]);
+    const max = recheck?.available ? recheck.count : 0;
+    if (quantity > max) {
+      throw new BadRequestException(`Доступно ${max} шт.`);
+    }
+    const mult = Number((item.raw as any)?.multiplicity) || 1;
+    if (mult > 1 && quantity % mult !== 0) {
+      throw new BadRequestException(`Количество должно быть кратно ${mult}.`);
+    }
+
     item.quantity = quantity;
     await this.itemRepo.save(item);
     return this.getCart(userId);
@@ -223,6 +236,7 @@ export class CartService {
         priceChanged: currentPrice !== priceAtAdd,
         raw: offer.raw,
         warehouseId: offer.warehouseId,
+        count: offer.count,
       };
     } catch {
       // Couldn't verify (partner down / timeout / inactive) => not available.
@@ -241,6 +255,7 @@ export class CartService {
       priceChanged: false,
       raw: item.raw ?? {},
       warehouseId: item.warehouseId,
+      count: 0,
     };
   }
 

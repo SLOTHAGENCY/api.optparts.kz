@@ -259,4 +259,21 @@ describe('CartService', () => {
     expect(res[0].sellPrice).toBe(120);
     expect(res[0].raw).toEqual({ offerId: 'snap' });
   });
+
+  it('getCart exposes maxQuantity from the live count', async () => {
+    const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
+      makeOffer({ count: 7, warehouseId: 'W1', raw: { offerKey: 'g|W1' } }),
+    ]);
+    const { service } = makeService({ items: [makeItem({ raw: { offerKey: 'g|W1' } })], connector });
+    const res = await service.getCart('u1');
+    expect(res.items[0].maxQuantity).toBe(7);
+  });
+
+  it('updateItem rejects quantity above maxQuantity', async () => {
+    const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
+      makeOffer({ count: 3, warehouseId: 'W1', raw: { offerKey: 'g|W1' } }),
+    ]);
+    const { service } = makeService({ items: [makeItem({ id: 'i1', raw: { offerKey: 'g|W1' } })], connector });
+    await expect(service.updateItem('u1', 'i1', 5)).rejects.toThrow(/доступно|available/i);
+  });
 });
