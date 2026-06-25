@@ -31,6 +31,17 @@ describe('resolveConfig', () => {
     const s2 = svc({ config: {}, secrets: {}, timeoutMs: null });
     expect((await resolveConfig(s2, 'tabys', {})).TIMEOUT_MS).toBe('15000');
   });
+
+  it('works when findByCode returns null: falls back to env and defaults TIMEOUT_MS to 15000', async () => {
+    process.env.TABYS_API_KEY = 'from-env';
+    const s = {
+      findByCode: jest.fn(async () => null),
+      getSecrets: jest.fn(async () => ({})),
+    } as any;
+    const out = await resolveConfig(s, 'tabys', { API_KEY: 'TABYS_API_KEY' });
+    expect(out.API_KEY).toBe('from-env');
+    expect(out.TIMEOUT_MS).toBe('15000');
+  });
 });
 
 describe('hasKeys', () => {

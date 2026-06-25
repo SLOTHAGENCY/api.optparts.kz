@@ -152,7 +152,7 @@ export class RosskoConnector implements SupplierConnector {
             'Content-Type': 'text/xml; charset=utf-8',
             SOAPAction: 'https://api.rossko.ru/service/v2.1/GetCheckout',
           },
-          timeout: Number(c.TIMEOUT_MS) || 15000,
+          timeout: Number(c.TIMEOUT_MS) || 20000,
         },
       );
       rawXml = response.data;
