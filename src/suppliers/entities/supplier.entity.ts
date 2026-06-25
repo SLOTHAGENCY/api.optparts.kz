@@ -51,6 +51,18 @@ export class Supplier {
   @Column({ type: 'int', nullable: true })
   deliveryBufferDays: number | null;
 
+  @ApiProperty({ example: 15000, nullable: true, description: 'Per-request timeout (ms); null => default 15000' })
+  @Column({ type: 'int', nullable: true })
+  timeoutMs: number | null;
+
+  @ApiProperty({ example: 120, nullable: true, description: 'Max requests per minute to this partner; null => unlimited' })
+  @Column({ type: 'int', nullable: true })
+  rateLimitRpm: number | null;
+
+  @ApiProperty({ description: 'Encrypted JSON of sensitive keys (never returned in plaintext)', nullable: true })
+  @Column({ type: 'text', nullable: true })
+  secretsEnc: string | null;
+
   @ApiProperty({ example: {}, description: 'Non-sensitive partner config' })
   @Column({ type: 'jsonb', default: () => "'{}'" })
   config: Record<string, unknown>;
