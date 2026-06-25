@@ -58,6 +58,7 @@
         roles.value = (user.roles || []).join(', ');
         setUser(user);
         renderNav();
+        renderAdminNav(); // re-append admin links wiped by renderNav()
       } catch (err) {
         showMsg('profileMsg', 'Не удалось загрузить профиль: ' + err.message, 'err');
       }
