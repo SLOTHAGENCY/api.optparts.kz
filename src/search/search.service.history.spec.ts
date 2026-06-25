@@ -10,7 +10,7 @@ function makeService(rows: any[]) {
       return [filtered.slice(skip, skip + take), filtered.length];
     }),
   };
-  const service = new SearchService({} as any, {} as any, repo as any, {} as any, {} as any);
+  const service = new SearchService({} as any, {} as any, repo as any, {} as any, {} as any, {} as any);
   return { service, repo };
 }
 

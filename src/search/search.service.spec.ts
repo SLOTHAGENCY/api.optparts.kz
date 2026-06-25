@@ -30,7 +30,8 @@ function makeService(connectors: any[], saveImpl?: jest.Mock) {
   const repo = { save: saveImpl ?? jest.fn(async (e: any) => e) };
   const settings = { getDeliveryBufferDays: jest.fn(async () => 0) };
   const suppliersService = { findAll: jest.fn(async () => []) };
-  const service = new SearchService(registry as any, pricing as any, repo as any, settings as any, suppliersService as any);
+  const rateLimiter = { gate: jest.fn(async (_code: any, _rpm: any, fn: () => any) => fn()) };
+  const service = new SearchService(registry as any, pricing as any, repo as any, settings as any, suppliersService as any, rateLimiter as any);
   return { service, registry, pricing, repo };
 }
 
@@ -149,7 +150,7 @@ describe('SearchService.search', () => {
   });
 
   it('adds delivery buffer (supplier over global) to offer deliveryDays', () => {
-    const svc: any = new SearchService({} as any, {} as any, {} as any, {} as any, {} as any);
+    const svc: any = new SearchService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
     // bufferByCode: rossko=+2; global=+1
     expect(svc.withBuffer(3, 'rossko', new Map([['rossko', 2]]), 1)).toBe(5);
     expect(svc.withBuffer(3, 'tabys', new Map([['rossko', 2]]), 1)).toBe(4); // global

@@ -26,6 +26,8 @@ import {
   ReturnItem,
   SupplierOrderStatusValue,
 } from '../suppliers/types';
+import { SuppliersService } from '../suppliers/suppliers.service';
+import { RateLimiterRegistry } from '../suppliers/rate-limiter.registry';
 
 /** Aggregate the order status from its sub-order statuses (Spec C §4.6). */
 export function aggregateOrderStatus(
@@ -51,6 +53,8 @@ export class OrdersService {
     private readonly cart: CartCheckoutContract,
     private readonly suppliersRegistry: SuppliersRegistry,
     private readonly partnerProducts: PartnerProductsService,
+    private readonly suppliersService: SuppliersService,
+    private readonly rateLimiter: RateLimiterRegistry,
   ) {}
 
   // ---- Reads ----
@@ -190,7 +194,12 @@ export class OrdersService {
     });
     try {
       const connector = await this.suppliersRegistry.getByCode(supplierCode);
-      const result = await connector.placeOrder(this.toPlaceOrderItems(items));
+      const supplier = await this.suppliersService.findByCode(supplierCode);
+      const result = await this.rateLimiter.gate(
+        supplierCode,
+        supplier?.rateLimitRpm ?? null,
+        () => connector.placeOrder(this.toPlaceOrderItems(items)),
+      );
       sub.externalOrderId = result.externalOrderId;
       sub.status = result.status;
       sub.errorMessage = result.errorMessage ?? null;

@@ -9,6 +9,7 @@ import { TabysConnector } from './connectors/tabys/tabys.connector';
 import { ShateMConnector } from './connectors/shatem/shatem.connector';
 import { AutotradeConnector } from './connectors/autotrade/autotrade.connector';
 import { SuppliersController } from './suppliers.controller';
+import { RateLimiterRegistry } from './rate-limiter.registry';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Supplier])],
@@ -16,6 +17,7 @@ import { SuppliersController } from './suppliers.controller';
   providers: [
     SuppliersService,
     SuppliersRegistry,
+    RateLimiterRegistry,
     RosskoConnector,
     TabysConnector,
     ShateMConnector,
@@ -31,6 +33,6 @@ import { SuppliersController } from './suppliers.controller';
       inject: [RosskoConnector, TabysConnector, ShateMConnector, AutotradeConnector],
     },
   ],
-  exports: [SuppliersService, SuppliersRegistry, SUPPLIERS],
+  exports: [SuppliersService, SuppliersRegistry, RateLimiterRegistry, SUPPLIERS],
 })
 export class SuppliersModule {}

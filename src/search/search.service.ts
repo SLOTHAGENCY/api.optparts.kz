@@ -17,6 +17,7 @@ import { HistoryQueryDto, HistoryResponseDto } from './dto/search-history.dto';
 import { SettingsService } from '../settings/settings.service';
 import { SuppliersService } from '../suppliers/suppliers.service';
 import { SearchFilterDto } from './dto/search-filter.dto';
+import { RateLimiterRegistry } from '../suppliers/rate-limiter.registry';
 
 const DEFAULT_SEARCH_TIMEOUT_MS = 8000;
 
@@ -41,6 +42,7 @@ export class SearchService {
     private readonly searchLogRepo: Repository<SearchLog>,
     private readonly settings: SettingsService,
     private readonly suppliersService: SuppliersService,
+    private readonly rateLimiter: RateLimiterRegistry,
   ) {}
 
   async search(
@@ -52,11 +54,21 @@ export class SearchService {
     const connectors = await this.registry.getActive();
     const suppliersQueried = connectors.length;
 
+    const supplierRows = await this.suppliersService.findAll();
+    const bufferByCode = new Map(
+      supplierRows.map((s) => [s.code, s.deliveryBufferDays]),
+    );
+    const rateLimitByCode = new Map(
+      supplierRows.map((s) => [s.code, s.rateLimitRpm]),
+    );
+
     const settled = await Promise.allSettled(
       connectors.map((connector) =>
-        this.withTimeout(connector.search(article, brand), this.timeoutMs).then(
-          (offers) => ({ connector, offers }),
-        ),
+        this.rateLimiter
+          .gate(connector.code, this.rpmFor(connector.code, rateLimitByCode), () =>
+            this.withTimeout(connector.search(article, brand), this.timeoutMs),
+          )
+          .then((offers) => ({ connector, offers })),
       ),
     );
 
@@ -74,11 +86,6 @@ export class SearchService {
         );
       }
     }
-
-    const supplierRows = await this.suppliersService.findAll();
-    const bufferByCode = new Map(
-      supplierRows.map((s) => [s.code, s.deliveryBufferDays]),
-    );
     const globalBuffer = await this.settings.getDeliveryBufferDays();
 
     const normalized = await Promise.all(
@@ -181,6 +188,10 @@ export class SearchService {
         raw: offer.raw,
       },
     };
+  }
+
+  private rpmFor(code: string, byCode: Map<string, number | null>): number | null {
+    return byCode.get(code) ?? null;
   }
 
   /** deliveryDays + (supplier buffer ?? global buffer ?? 0). */

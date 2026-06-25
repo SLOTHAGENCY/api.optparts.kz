@@ -50,12 +50,16 @@ function makeDeps(items: any[], connectorByCode: Record<string, MockConnector>) 
     getByCode: jest.fn(async (code: string) => connectorByCode[code]),
   };
   const partnerProducts = { recordOrder: jest.fn(async () => undefined) };
+  const suppliersService = { findByCode: jest.fn(async () => ({ rateLimitRpm: null })) };
+  const rateLimiter = { gate: jest.fn(async (_code: any, _rpm: any, fn: () => any) => fn()) };
   const service = new OrdersService(
     orderRepo as any,
     supplierOrderRepo as any,
     cart as any,
     registry as any,
     partnerProducts as any,
+    suppliersService as any,
+    rateLimiter as any,
   );
   return { service, orderRepo, supplierOrderRepo, cart, registry, partnerProducts };
 }
@@ -163,6 +167,8 @@ describe('OrdersService manager controls', () => {
       { getCheckoutItems: jest.fn(), clearCart: jest.fn() } as any,
       { getByCode: jest.fn(async () => connector) } as any,
       { recordOrder: jest.fn() } as any,
+      { findByCode: jest.fn(async () => ({ rateLimitRpm: null })) } as any,
+      { gate: jest.fn(async (_code: any, _rpm: any, fn: () => any) => fn()) } as any,
     );
     return { service, order, orderRepo, supplierOrderRepo };
   }
