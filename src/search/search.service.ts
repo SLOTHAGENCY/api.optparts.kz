@@ -6,6 +6,7 @@ import { PricingService } from '../pricing/pricing.service';
 import { SupplierOffer } from '../suppliers/types';
 import { SearchLog } from './entities/search-log.entity';
 import { encodeOfferId } from './offer-id.util';
+import { normalizeArticle } from './normalize-article.util';
 import {
   OfferDto,
   SearchGroupDto,
@@ -200,7 +201,7 @@ export class SearchService {
   } {
     const groups = new Map<string, RankedGroup>();
     for (const offer of offers) {
-      const key = `${offer.article.trim().toUpperCase()}|${offer.brand.trim().toUpperCase()}`;
+      const key = `${normalizeArticle(offer.article)}|${normalizeArticle(offer.brand)}`;
       let group = groups.get(key);
       if (!group) {
         group = {
