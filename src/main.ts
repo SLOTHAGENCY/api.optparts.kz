@@ -20,9 +20,9 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('optparts.kz API')
-    .setDescription('Multi-supplier auto parts aggregator API')
-    .setVersion('1.0.0')
+    .setTitle('OptParts Aggregator API')
+    .setDescription('Multi-supplier auto-parts aggregator: search, cart, orders, admin.')
+    .setVersion('1.0')
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);

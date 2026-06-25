@@ -28,6 +28,7 @@ export class OrdersController {
 
   /** GET /orders — current user's orders */
   @Get()
+  @ApiOperation({ summary: 'List the current user\'s orders' })
   findMyOrders(@CurrentUser() user: User) {
     return this.ordersService.findAllByUser(user.id);
   }
@@ -35,12 +36,18 @@ export class OrdersController {
   /** GET /orders/all — all orders (admin/manager) */
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Get('all')
+  @ApiOperation({ summary: 'List all orders across all users (MANAGER/ADMIN)' })
+  @ApiResponse({ status: 403, description: 'Manager/Admin only.' })
   findAll() {
     return this.ordersService.findAll();
   }
 
   /** GET /orders/:id */
   @Get(':id')
+  @ApiOperation({ summary: 'Get a single order (own order or admin/manager)' })
+  @ApiParam({ name: 'id', description: 'Order id', format: 'uuid' })
+  @ApiResponse({ status: 403, description: 'Not allowed to view this order.' })
+  @ApiResponse({ status: 404, description: 'Order not found.' })
   findOne(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
     return this.ordersService.findOne(id, user.id);
   }
@@ -111,6 +118,9 @@ export class OrdersController {
   /** PATCH /orders/:id/status — admin/manager update status */
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Patch(':id/status')
+  @ApiOperation({ summary: 'Update order status (MANAGER/ADMIN)' })
+  @ApiParam({ name: 'id', description: 'Order id', format: 'uuid' })
+  @ApiResponse({ status: 403, description: 'Manager/Admin only.' })
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateOrderStatusDto,
@@ -121,6 +131,9 @@ export class OrdersController {
   /** PATCH /orders/:id/cancel — user cancels own order */
   @Patch(':id/cancel')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Cancel an order (own order only, before fulfilment)' })
+  @ApiParam({ name: 'id', description: 'Order id', format: 'uuid' })
+  @ApiResponse({ status: 409, description: 'Order cannot be cancelled in its current state.' })
   cancel(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
     return this.ordersService.cancel(id, user.id);
   }
@@ -128,6 +141,9 @@ export class OrdersController {
   /** PUT /orders/:id/comment — add or update manager comment */
   @Roles(UserRole.MANAGER, UserRole.ADMIN)
   @Put(':id/comment')
+  @ApiOperation({ summary: 'Add or update a manager comment on an order (MANAGER/ADMIN)' })
+  @ApiParam({ name: 'id', description: 'Order id', format: 'uuid' })
+  @ApiResponse({ status: 403, description: 'Manager/Admin only.' })
   upsertComment(
     @CurrentUser() user: User,
     @Param('id', ParseUUIDPipe) id: string,
@@ -140,6 +156,9 @@ export class OrdersController {
   @Roles(UserRole.MANAGER, UserRole.ADMIN)
   @Delete(':id/comment')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete a manager comment from an order (MANAGER/ADMIN)' })
+  @ApiParam({ name: 'id', description: 'Order id', format: 'uuid' })
+  @ApiResponse({ status: 403, description: 'Manager/Admin only.' })
   deleteComment(
     @CurrentUser() user: User,
     @Param('id', ParseUUIDPipe) id: string,
