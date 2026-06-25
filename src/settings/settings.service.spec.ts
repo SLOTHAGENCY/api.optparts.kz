@@ -41,4 +41,19 @@ describe('SettingsService', () => {
     expect(repo.save).toHaveBeenCalled();
     expect(await service.getDefaultMarkup()).toBe(25);
   });
+
+  describe('SettingsService.getOrderMode', () => {
+    it('defaults to test when unset', async () => {
+      const { service } = makeService();
+      expect(await service.getOrderMode()).toBe('test');
+    });
+    it('reads stored prod', async () => {
+      const { service } = makeService({ ORDER_MODE: 'prod' });
+      expect(await service.getOrderMode()).toBe('prod');
+    });
+    it('falls back to test on an unknown value', async () => {
+      const { service } = makeService({ ORDER_MODE: 'nonsense' });
+      expect(await service.getOrderMode()).toBe('test');
+    });
+  });
 });
