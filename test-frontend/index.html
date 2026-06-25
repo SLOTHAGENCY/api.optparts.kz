@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Поиск запчастей — тест</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="nav"></div>
+  <h1>Поиск по артикулу</h1>
+  <form id="form">
+    <label>Артикул</label>
+    <input id="article" required placeholder="например 0451103316" />
+    <label>Бренд (необязательно)</label>
+    <input id="brand" placeholder="например BOSCH" />
+    <br /><button type="submit">Искать</button>
+  </form>
+  <div id="msg" class="msg"></div>
+  <div id="results"></div>
+
+  <script src="app.js"></script>
+  <script>
+    requireAuth();
+
+    function offerRow(group, offer) {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + (offer.supplierName || offer.supplierCode) + '</td>' +
+        '<td>' + money(offer.sellPrice) + '</td>' +
+        '<td>' + offer.deliveryDays + ' дн.</td>' +
+        '<td>' + offer.count + '</td>';
+      const td = document.createElement('td');
+      const btn = document.createElement('button');
+      btn.textContent = 'В корзину';
+      btn.onclick = () => addToCart(group, offer, btn);
+      td.appendChild(btn);
+      tr.appendChild(td);
+      return tr;
+    }
+
+    function renderGroupCard(group, isAnalog) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      const header = document.createElement('div');
+      header.className = 'card-header';
+      const title = document.createElement('span');
+      title.className = 'card-title';
+      title.textContent = (group.brand || '') + ' ' + (group.article || '') + ' — ' + (group.name || '');
+      header.appendChild(title);
+      if (isAnalog) {
+        const badge = document.createElement('span');
+        badge.className = 'badge-analog';
+        badge.textContent = 'аналог';
+        header.appendChild(badge);
+      }
+      card.appendChild(header);
+      if (group.offers && group.offers.length) {
+        const table = document.createElement('table');
+        table.innerHTML = '<thead><tr><th>Поставщик</th><th>Цена</th><th>Срок</th><th>Наличие</th><th></th></tr></thead>';
+        const tbody = document.createElement('tbody');
+        group.offers.forEach((o) => tbody.appendChild(offerRow(group, o)));
+        table.appendChild(tbody);
+        card.appendChild(table);
+      } else {
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.textContent = 'Нет предложений';
+        card.appendChild(p);
+      }
+      return card;
+    }
+
+    function renderGroups(title, groups, isAnalog) {
+      if (!groups || !groups.length) return null;
+      const wrap = document.createElement('div');
+      const h = document.createElement('div');
+      h.className = 'section-title';
+      h.textContent = title + ' (' + groups.length + ')';
+      wrap.appendChild(h);
+      groups.forEach((g) => wrap.appendChild(renderGroupCard(g, isAnalog)));
+      return wrap;
+    }
+
+    async function addToCart(group, offer, btn) {
+      btn.disabled = true;
+      try {
+        await api('/api/cart/items', {
+          method: 'POST',
+          body: JSON.stringify({
+            supplierCode: offer.supplierCode,
+            article: group.article,
+            brand: group.brand,
+            productName: group.name,
+            sellPrice: offer.sellPrice,
+            warehouseId: offer.warehouseId,
+            raw: offer.raw,
+            quantity: 1,
+          }),
+        });
+        btn.textContent = '✓ в корзине';
+      } catch (err) {
+        btn.disabled = false;
+        showMsg('msg', 'Ошибка добавления: ' + err.message, 'err');
+      }
+    }
+
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const results = document.getElementById('results');
+      results.innerHTML = '';
+      showMsg('msg', 'Поиск...', '');
+      try {
+        const q = new URLSearchParams({ article: article.value.trim() });
+        if (brand.value.trim()) q.set('brand', brand.value.trim());
+        const data = await api('/api/search?' + q.toString());
+        const total = (data.exact || []).length + (data.analogs || []).length;
+        showMsg('msg', total ? '' : 'Ничего не найдено.', '');
+        const exact = renderGroups('Точные совпадения', data.exact, false);
+        const analogs = renderGroups('Аналоги', data.analogs, true);
+        if (exact) results.appendChild(exact);
+        if (analogs) results.appendChild(analogs);
+      } catch (err) {
+        showMsg('msg', 'Ошибка: ' + err.message, 'err');
+      }
+    });
+  </script>
+</body>
+</html>

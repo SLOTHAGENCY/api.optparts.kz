@@ -96,3 +96,160 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+## Поставщики (агрегатор)
+
+Бэкенд работает как агрегатор предложений партнёров-поставщиков. Каждый партнёр
+подключается через **коннектор** — класс, реализующий контракт
+`SupplierConnector` (`src/suppliers/supplier-connector.interface.ts`). Коннектор
+инкапсулирует протокол партнёра (SOAP/REST/прайс) и наружу отдаёт только
+нормализованные типы из `src/suppliers/types.ts` (`SupplierOffer` и др.).
+
+### Как добавить нового партнёра
+
+1. **Создать коннектор:** `src/suppliers/connectors/<partner>/<partner>.connector.ts`,
+   класс с `@Injectable()`, реализующий `SupplierConnector`
+   (`code`, `name`, `search`, `placeOrder`, `getOrderStatus`, `requestReturn`).
+   Методы, недоступные у партнёра, бросают `NotImplementedException`.
+2. **Зарегистрировать в провайдерах `SUPPLIERS`:** в `src/suppliers/suppliers.module.ts`
+   добавить класс в `providers` и в фабрику токена `SUPPLIERS`
+   (`useFactory: (rossko, partner) => [rossko, partner]`, `inject: [...]`).
+3. **Завести запись в таблице `suppliers`:** строка с `code` партнёра, `name`,
+   `isActive`, опциональным `markupPercent` (миграцией или через
+   `PATCH /api/suppliers/:code`). Секреты (ключи API) — в `.env`, не в БД.
+
+Ядро (`SuppliersRegistry`, `SearchService`, `PricingService`) трогать не нужно —
+реестр сам подхватит активный коннектор.
+
+### Наценка (pricing)
+
+`PricingService.applyMarkup(costPrice, supplierCode)` превращает закупочную цену в
+продажную: `sellPrice = round(costPrice * (1 + markup/100))`. `markup` берётся из
+`suppliers.markupPercent` партнёра, иначе из `DEFAULT_MARKUP_PERCENT` (`.env`).
+Закупочная цена клиенту никогда не отдаётся.
+
+## Корзина (свежесть цены)
+
+Корзина хранит **снапшот выбранного оффера**, а `GET /api/cart` делает **живой
+запрос** к партнёру и пересчитывает цену/наличие.
+
+- **`POST /api/cart/items`** принимает оффер, как фронт получил его из
+  `GET /api/search`: `supplierCode, article, brand, productName, sellPrice,
+  costPrice, warehouseId, raw, quantity`. Сохраняется снапшот с
+  `priceAtAdd = sellPrice` и `productId = null`. Дедуп — по ключу оффера
+  `(supplierCode, article, brand, warehouseId)`: повтор суммирует количество.
+- **`GET /api/cart`** по каждой позиции параллельно (`Promise.allSettled`,
+  с таймаутом `CART_RECHECK_TIMEOUT_MS`, по умолчанию 10000 мс) перезапрашивает
+  партнёра:
+  - `priceAtAdd` — цена на момент добавления; `currentPrice` — свежая
+    (`PricingService.applyMarkup` от текущего `costPrice`); `priceChanged`
+    подсвечивает разницу.
+  - `subtotal` и `totalAmount` считаются по **свежей** `currentPrice`.
+  - **«Не удалось проверить» = «нет в наличии».** Партнёр недоступен/таймаут,
+    оффер пропал или склада меньше запрошенного количества ⇒ `available: false`,
+    `currentPrice = priceAtAdd`. Позицию нельзя заказать — предлагаем удалить.
+  - `costPrice` в клиентский ответ **не включается**.
+- **Контракт для заказов:** `CartService.getCheckoutItems(userId)` возвращает те же
+  позиции со свежей перепроверкой, но включая `costPrice`/`sellPrice`/`raw`/
+  `warehouseId` — всё, что нужно оформлению (Spec C). `CartModule` экспортирует
+  `CartService`.
+
+### API-документация
+
+Swagger доступен по `/api/docs` (UI) и `/api/docs-json` (OpenAPI JSON),
+генерируется из аннотаций контроллеров/DTO. Эталон — контроллер `/api/suppliers`.
+
+## Поиск (агрегатор)
+
+`GET /api/search?article=<артикул>&brand=<бренд>` — публичный живой поиск по всем
+**активным** партнёрам. `SearchService` опрашивает коннекторы **параллельно**
+(`Promise.allSettled`) с таймаутом на каждого (`SEARCH_TIMEOUT_MS`, по умолчанию
+15000 мс). Партнёр, который упал или не уложился в таймаут, исключается из выдачи
+и считается в `suppliersFailed` — выдача при этом не падает.
+
+### Формат и ранжирование
+
+Предложения группируются по паре `(article, brand)`. Внутри группы офферы
+сортируются: **цена `sellPrice` ↑ → срок `deliveryDays` ↑ → наличие `count` ↓**.
+Группы делятся на два списка:
+
+- `exact` — точные совпадения (`isAnalog=false`): артикул+бренд совпадают с запросом;
+- `analogs` — аналоги-заменители (`isAnalog=true`): подходящая, но другая позиция.
+
+`sellPrice` уже с наценкой (`PricingService.applyMarkup`). **Закупочная цена
+(`costPrice`) клиенту не отдаётся никогда.**
+
+### offerId и добавление в корзину
+
+Каждый оффер несёт детерминированный `offerId`:
+
+```
+offerId = base64url("{supplierCode}|{article}|{brand}|{warehouseId}")
+```
+
+Сервер ничего не хранит. Фронт получает оффер целиком (с `offerId` и `raw`) и при
+добавлении в корзину (Spec B) **обязан вернуть этот оффер-объект без изменений** —
+именно из `offerId` + `raw` восстанавливается, у какого партнёра и со какого склада
+оформлять позицию. Контракт оффера зафиксирован в Swagger-DTO `OfferDto`.
+
+### История поиска
+
+`GET /api/search/history` (требует авторизации) — свои записи; для ролей
+`MANAGER`/`ADMIN` — все записи с пагинацией (`?page=&limit=`). Каждый поиск
+пишется в таблицу `search_log` **асинхронно** (fire-and-forget) — ошибка записи
+лога не влияет на ответ поиска.
+
+## Заказы и возвраты (агрегатор)
+
+### Жизненный цикл заказа
+
+`POST /api/orders` оформляет заказ агрегатора:
+
+1. **Финальная live-перепроверка корзины** через `CartService.getCheckoutItems(userId)`
+   (свежие цена/наличие у партнёров).
+2. Если хоть одна позиция `!available` или `priceChanged` — **`409 Conflict`** со
+   списком изменений (`changes[]`); заказ не создаётся (клиент подтверждает новую цену
+   или убирает недоступное).
+3. Создаётся `Order` + снапшоты `order_item` (цены зафиксированы из `currentPrice`).
+4. Позиции группируются по `supplierCode`; на каждую группу создаётся `supplier_order`
+   и вызывается `connector.placeOrder()`.
+5. Итог под-заказа: `PLACED` + `externalOrderId`, либо `FAILED` + `errorMessage`. Если
+   у партнёра нет API заказа (`NotImplementedException`) — `FAILED` с пометкой о ручной
+   обработке.
+6. **Статус заказа агрегируется** из под-заказов: все `PLACED` → `Order.PLACED`; есть
+   хотя бы один `FAILED` (частичный успех) → `Order.PARTIALLY_PLACED`.
+7. Upsert в `partner_products` по каждой позиции; корзина очищается.
+
+Один `Order` → N `supplier_order` (по числу задействованных партнёров). Выдача заказов
+(`GET /api/orders`, `/api/orders/:id`, `/api/orders/all`) включает `supplierOrders[]`.
+
+### Управление под-заказами (роль MANAGER/ADMIN)
+
+- `POST /api/orders/:id/suppliers/:sid/refresh-status` — `connector.getOrderStatus()`,
+  обновляет статус под-заказа («по кнопке»; cron — отдельный поздний этап).
+- `POST /api/orders/:id/suppliers/:sid/retry` — повторяет `placeOrder` для `FAILED`
+  под-заказа (позиции восстанавливаются из иммутабельного снапшота `order_item`).
+- `POST /api/orders/:id/suppliers/:sid/return` — возврат (полуавтомат): где есть API —
+  `connector.requestReturn()`, иначе фиксируется `returnStatus=REQUESTED` для ручной
+  обработки. Тело — список позиций/количеств (`RequestReturnDto`).
+
+### Иммутабельность истории
+
+`order_item` и `supplier_order` после создания **не меняются** перепроверкой —
+live-перепроверка применяется только к корзине. Деактивация партнёра не каскадит на
+существующие заказы: имя/данные партнёра берутся из снапшота.
+
+### `partner_products` (аналитика)
+
+Справочник партнёрских товаров, **upsert при каждом оформлении заказа**
+(`firstSeenAt`/`lastSeenAt`, `lastKnownCostPrice`/`lastKnownSellPrice`,
+инкремент `timesOrdered`; уникальность по `supplierCode + article + brand`). Это
+**не источник поиска и не источник цены** — только аналитика. Чтение:
+`GET /api/partner-products` (MANAGER/ADMIN, фильтры `supplierCode`/`article`, пагинация).
+
+### Шов с корзиной (Spec B)
+
+`POST /api/orders` потребляет `CartService.getCheckoutItems()` через DI-токен
+`CART_CHECKOUT` (`src/orders/cart-checkout.contract.ts`). Сейчас это локальный стаб
+(`CartCheckoutStub`); при мёрже Spec B провайдер заменяется на реальный `CartService`
+(см. комментарий `MERGE:` в `OrdersModule`).

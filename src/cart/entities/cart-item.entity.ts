@@ -22,12 +22,43 @@ export class CartItem {
   @Column()
   cartId: string;
 
-  @ManyToOne(() => Product, { eager: true, onDelete: 'CASCADE' })
+  // Own product — kept for future self-catalog offers; null for aggregator offers.
+  // Not eager: eager-loading Product pulls the self-referential Category tree and
+  // recurses (TypeORM joinEagerRelations). Load explicitly if ever needed.
+  @ManyToOne(() => Product, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn()
-  product: Product;
+  product: Product | null;
 
-  @Column()
-  productId: string;
+  @Column({ type: 'uuid', nullable: true })
+  productId: string | null;
+
+  // --- aggregator offer snapshot ---
+  @Column({ type: 'varchar', nullable: true })
+  supplierCode: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  article: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  brand: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  productName: string;
+
+  // sellPrice at the moment of adding (TypeORM returns decimals as strings).
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  priceAtAdd: string;
+
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  costPrice: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  warehouseId: string;
+
+  // Raw offer identifier (from search) needed for placeOrder.
+  @Column({ type: 'jsonb', nullable: true })
+  raw: Record<string, unknown>;
+  // --- end snapshot ---
 
   @Column({ type: 'int', default: 1 })
   quantity: number;

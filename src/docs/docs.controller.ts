@@ -4,6 +4,11 @@ import { join } from 'path';
 import { createReadStream, existsSync } from 'fs';
 import { Public } from '../auth/decorators/public.decorator';
 
+/**
+ * @deprecated The hand-written Stoplight/openapi.yaml docs are superseded by
+ * generated Swagger served at /api/docs (see main.ts). This controller is no
+ * longer registered in DocsModule; kept only for reference until removed.
+ */
 @Controller()
 export class DocsController {
   /** GET /api/docs — Stoplight Elements UI */

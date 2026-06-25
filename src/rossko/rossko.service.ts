@@ -32,6 +32,11 @@ export interface RosskoSearchResult {
   results: NormalizedProduct[];
 }
 
+/**
+ * @deprecated Superseded by suppliers/connectors/rossko/rossko.connector.ts
+ * (implements SupplierConnector). Kept temporarily so existing /api/parts
+ * routes keep working; remove in a later cleanup task once all specs migrate.
+ */
 @Injectable()
 export class RosskoService {
   private readonly logger = new Logger(RosskoService.name);

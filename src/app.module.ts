@@ -26,6 +26,16 @@ import { ProductProperty } from './products/entities/product-property.entity';
 import { Order } from './orders/entities/order.entity';
 import { OrderItem } from './orders/entities/order-item.entity';
 import { RosskoModule } from './rossko/rossko.module';
+import { SuppliersModule } from './suppliers/suppliers.module';
+import { PricingModule } from './pricing/pricing.module';
+import { SearchModule } from './search/search.module';
+import { Supplier } from './suppliers/entities/supplier.entity';
+import { SearchLog } from './search/entities/search-log.entity';
+import { SupplierOrder } from './orders/entities/supplier-order.entity';
+import { PartnerProduct } from './partner-products/entities/partner-product.entity';
+import { PartnerProductsModule } from './partner-products/partner-products.module';
+import { AppSetting } from './settings/entities/app-setting.entity';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
@@ -37,7 +47,7 @@ import { RosskoModule } from './rossko/rossko.module';
         username: process.env.DB_USERNAME || 'postgres',
         password: process.env.DB_PASSWORD || 'postgres',
         database: process.env.DB_NAME || 'nestjs_auth',
-        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem],
+        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting],
         migrations: ['dist/migrations/*.js'],
         synchronize: process.env.NODE_ENV === 'development',
         logging: process.env.NODE_ENV === 'development',
@@ -47,6 +57,15 @@ import { RosskoModule } from './rossko/rossko.module';
       rootPath: join(__dirname, '..', 'uploads'),
       serveRoot: '/uploads',
     }),
+    // TEST FRONTEND — удалить вместе с папкой test-frontend/
+    ...(process.env.SERVE_TEST_FRONTEND === 'true'
+      ? [
+          ServeStaticModule.forRoot({
+            rootPath: join(__dirname, '..', 'test-frontend'),
+            serveRoot: '/test',
+          }),
+        ]
+      : []),
     AddressesModule,
     AuthModule,
     UsersModule,
@@ -56,7 +75,12 @@ import { RosskoModule } from './rossko/rossko.module';
     CategoriesModule,
     BrandsModule,
     OrdersModule,
+    PartnerProductsModule,
     RosskoModule,
+    SuppliersModule,
+    PricingModule,
+    SearchModule,
+    SettingsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

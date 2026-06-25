@@ -1,16 +1,13 @@
-import { IsUUID, IsOptional, IsArray, ValidateNested, IsInt, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsUUID } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
-export class OrderItemDto {
-  @IsUUID() productId: string;
-  @IsInt() @Min(1) quantity: number;
-}
-
+/**
+ * Items are taken from the cart's live re-check (CartService.getCheckoutItems),
+ * not from the request body (Spec C §4).
+ */
 export class CreateOrderDto {
-  @IsOptional() @IsUUID() addressId?: string;
-
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => OrderItemDto)
-  items: OrderItemDto[];
+  @ApiPropertyOptional({ description: 'Delivery address id', format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  addressId?: string;
 }
