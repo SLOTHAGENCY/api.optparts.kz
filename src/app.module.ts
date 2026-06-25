@@ -35,6 +35,7 @@ import { PartnerProductsModule } from './partner-products/partner-products.modul
 import { AppSetting } from './settings/entities/app-setting.entity';
 import { SettingsModule } from './settings/settings.module';
 import { BrandMarkup } from './pricing/entities/brand-markup.entity';
+import { CommonModule } from './common/common.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { BrandMarkup } from './pricing/entities/brand-markup.entity';
           }),
         ]
       : []),
+    CommonModule,
     AddressesModule,
     AuthModule,
     UsersModule,
