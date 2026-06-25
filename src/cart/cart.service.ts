@@ -225,6 +225,7 @@ export class CartService {
         offer.costPrice,
         item.supplierCode,
         offer.currency,
+        offer.brand,
       );
       const priceAtAdd = Number(item.priceAtAdd);
       return {

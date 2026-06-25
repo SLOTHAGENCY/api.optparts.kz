@@ -5,6 +5,7 @@ function make(opts: {
   rates?: Record<string, number>;
   buffer?: number;
   defaultMarkup?: number;
+  brandPercent?: number | null;
 } = {}) {
   const suppliersService = {
     findByCode: jest.fn(async () => opts.supplier ?? { markupPercent: null, currency: null }),
@@ -14,7 +15,10 @@ function make(opts: {
     getFxBufferPercent: jest.fn(async () => opts.buffer ?? 0),
     getDefaultMarkup: jest.fn(async () => opts.defaultMarkup ?? 20),
   };
-  return new PricingService(suppliersService as any, settings as any);
+  const brandMarkups = {
+    findPercentByBrand: jest.fn(async () => opts.brandPercent ?? null),
+  };
+  return new PricingService(suppliersService as any, settings as any, brandMarkups as any);
 }
 
 describe('PricingService.applyMarkup', () => {
@@ -43,5 +47,20 @@ describe('PricingService.applyMarkup', () => {
   it('unknown currency falls back to rate 1', async () => {
     const p = make({ rates: { KZT: 1 }, supplier: { markupPercent: 0, currency: null } });
     expect(await p.applyMarkup(100, 'x', 'EUR')).toBe(100);
+  });
+
+  it('brand markup overrides supplier and default', async () => {
+    const p = make({ supplier: { markupPercent: 10, currency: 'KZT' }, brandPercent: 50 });
+    expect(await p.applyMarkup(1000, 'x', 'KZT', 'BOSCH')).toBe(1500);
+  });
+
+  it('falls back to supplier markup when no brand markup', async () => {
+    const p = make({ supplier: { markupPercent: 10, currency: 'KZT' }, brandPercent: null });
+    expect(await p.applyMarkup(1000, 'x', 'KZT', 'BOSCH')).toBe(1100);
+  });
+
+  it('falls back to default when neither brand nor supplier set', async () => {
+    const p = make({ supplier: { markupPercent: null, currency: 'KZT' }, brandPercent: null, defaultMarkup: 20 });
+    expect(await p.applyMarkup(1000, 'x', 'KZT')).toBe(1200);
   });
 });

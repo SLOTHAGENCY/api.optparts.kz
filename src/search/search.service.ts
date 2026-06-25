@@ -130,6 +130,7 @@ export class SearchService {
       offer.costPrice,
       offer.supplierCode,
       offer.currency,
+      offer.brand,
     );
     return {
       article: offer.article,
