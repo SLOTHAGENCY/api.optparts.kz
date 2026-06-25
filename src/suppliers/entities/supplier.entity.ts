@@ -5,7 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
 
 /** TypeORM returns decimal columns as strings; normalize to number|null. */
 export const decimalTransformer = {
@@ -59,7 +59,7 @@ export class Supplier {
   @Column({ type: 'int', nullable: true })
   rateLimitRpm: number | null;
 
-  @ApiProperty({ description: 'Encrypted JSON of sensitive keys (never returned in plaintext)', nullable: true })
+  @ApiHideProperty()
   @Column({ type: 'text', nullable: true })
   secretsEnc: string | null;
 

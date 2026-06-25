@@ -71,10 +71,13 @@ describe('SuppliersService', () => {
 describe('SuppliersService secrets & config', () => {
   it('encrypts secrets on update and stores apiUrl in config', async () => {
     const supplier: any = { code: 'tabys', config: {}, secretsEnc: null };
-    const { svc, crypto } = make(supplier);
+    const { svc, repo, crypto } = make(supplier);
     const saved = await svc.update('tabys', { apiUrl: 'https://x', secrets: { API_KEY: 'k' } } as any);
     expect(crypto.encrypt).toHaveBeenCalledWith(JSON.stringify({ API_KEY: 'k' }));
-    expect(saved.secretsEnc).toBe('enc({"API_KEY":"k"})');
+    // HTTP response must be masked, not the raw ciphertext
+    expect(saved.secretsEnc).toBe('***');
+    // The real ciphertext must have been persisted to the repo
+    expect(repo.save.mock.calls[0][0].secretsEnc).toBe('enc({"API_KEY":"k"})');
     expect(saved.config).toEqual({ API_URL: 'https://x' });
   });
 
@@ -83,5 +86,26 @@ describe('SuppliersService secrets & config', () => {
     expect(await svc.getSecrets('tabys')).toEqual({ API_KEY: 'k' });
     const empty = make({ code: 'tabys', secretsEnc: null });
     expect(await empty.svc.getSecrets('tabys')).toEqual({});
+  });
+
+  it('update masks secretsEnc in the returned object but repo keeps real ciphertext', async () => {
+    const supplier: any = { code: 'tabys', config: {}, secretsEnc: null };
+    const { svc, repo, crypto } = make(supplier);
+    const result = await svc.update('tabys', { secrets: { API_KEY: 'secret' } } as any);
+    // HTTP response must NOT expose the real ciphertext
+    expect(result.secretsEnc).toBe('***');
+    // The object handed to repo.save must carry the real ciphertext
+    const savedArg = repo.save.mock.calls[0][0];
+    expect(savedArg.secretsEnc).toBe('enc({"API_KEY":"secret"})');
+    // getSecrets must still decrypt correctly (DB row is untouched)
+    crypto.decrypt.mockImplementation((s: string) => s.replace(/^enc\(|\)$/g, ''));
+    expect(await svc.getSecrets('tabys')).toEqual({ API_KEY: 'secret' });
+  });
+
+  it('update returns secretsEnc === null (masked) when no secrets were set', async () => {
+    const supplier: any = { code: 'tabys', config: {}, secretsEnc: null };
+    const { svc } = make(supplier);
+    const result = await svc.update('tabys', { isActive: true } as any);
+    expect(result.secretsEnc).toBeNull();
   });
 });

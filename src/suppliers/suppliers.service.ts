@@ -13,9 +13,13 @@ export class SuppliersService {
     private readonly crypto: CryptoService,
   ) {}
 
+  private maskSecret(s: Supplier): Supplier {
+    return { ...s, secretsEnc: s.secretsEnc ? '***' : null };
+  }
+
   async findAll(): Promise<Supplier[]> {
     const rows = await this.repo.find();
-    return rows.map((s) => ({ ...s, secretsEnc: s.secretsEnc ? '***' : null }));
+    return rows.map((s) => this.maskSecret(s));
   }
 
   findByCode(code: string): Promise<Supplier | null> {
@@ -50,6 +54,7 @@ export class SuppliersService {
     if (dto.secrets !== undefined) {
       supplier.secretsEnc = this.crypto.encrypt(JSON.stringify(dto.secrets));
     }
-    return this.repo.save(supplier);
+    const saved = await this.repo.save(supplier);
+    return this.maskSecret(saved);
   }
 }
