@@ -161,6 +161,7 @@ describe('OrdersService manager controls', () => {
       findOne: jest.fn(async () => sub),
       save: jest.fn(async (s: any) => s),
     };
+    const rateLimiter = { gate: jest.fn(async (_code: any, _rpm: any, fn: () => any) => fn()) };
     const service = new OrdersService(
       orderRepo as any,
       supplierOrderRepo as any,
@@ -168,9 +169,9 @@ describe('OrdersService manager controls', () => {
       { getByCode: jest.fn(async () => connector) } as any,
       { recordOrder: jest.fn() } as any,
       { findByCode: jest.fn(async () => ({ rateLimitRpm: null })) } as any,
-      { gate: jest.fn(async (_code: any, _rpm: any, fn: () => any) => fn()) } as any,
+      rateLimiter as any,
     );
-    return { service, order, orderRepo, supplierOrderRepo };
+    return { service, order, orderRepo, supplierOrderRepo, rateLimiter };
   }
 
   it('refresh-status updates the sub-order status from the connector', async () => {
@@ -215,6 +216,35 @@ describe('OrdersService manager controls', () => {
     await service.retrySupplierOrder('order-1', 'sub-1');
     expect(sub.status).toBe('PLACED');
     expect(sub.externalOrderId).toBe('EXT-2');
+  });
+
+  it('retry routes placeOrder through the rate limiter gate', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'FAILED',
+      errorMessage: 'previous error',
+    };
+    const items = [
+      {
+        supplierCode: 'mock',
+        article: 'A1',
+        brand: 'BOSCH',
+        warehouseId: 'w1',
+        quantity: 1,
+        raw: {},
+      },
+    ];
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-3',
+      status: 'PLACED',
+    });
+    const { service, rateLimiter } = makeServiceWithSub(sub, connector, items);
+    await service.retrySupplierOrder('order-1', 'sub-1');
+    expect(rateLimiter.gate).toHaveBeenCalledWith('mock', null, expect.any(Function));
+    expect(sub.status).toBe('PLACED');
   });
 
   it('return via connector API sets returnStatus from the result', async () => {

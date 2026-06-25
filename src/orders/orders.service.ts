@@ -280,7 +280,12 @@ export class OrdersService {
     }));
     try {
       const connector = await this.suppliersRegistry.getByCode(sub.supplierCode);
-      const result = await connector.placeOrder(placeItems);
+      const supplier = await this.suppliersService.findByCode(sub.supplierCode);
+      const result = await this.rateLimiter.gate(
+        sub.supplierCode,
+        supplier?.rateLimitRpm ?? null,
+        () => connector.placeOrder(placeItems),
+      );
       sub.externalOrderId = result.externalOrderId;
       sub.status = result.status;
       sub.errorMessage = result.errorMessage ?? null;

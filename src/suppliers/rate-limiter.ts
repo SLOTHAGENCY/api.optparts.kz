@@ -24,6 +24,12 @@ export class RateLimiter {
       this.tokens = Math.min(this.tokens + gained, Math.max(1, this.rpm));
       this.lastRefill = now;
     }
+    // Passive drain: waiters are released here, inside refill(), which is
+    // called only by acquire() (or the test-hook tick()). There is no
+    // background timer — under very sparse traffic a queued waiter may wait
+    // longer than the nominal token interval until the next acquire() arrives.
+    // This is intentional: background timers would complicate lifecycle
+    // management without meaningful benefit for the expected request cadence.
     while (this.tokens >= 1 && this.waiters.length) {
       this.tokens -= 1;
       this.waiters.shift()!();
