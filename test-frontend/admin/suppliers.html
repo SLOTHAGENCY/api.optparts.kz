@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Поставщики — Админ</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body>
+  <div id="nav"></div>
+  <h1>Поставщики</h1>
+  <div id="msg" class="msg"></div>
+  <div id="suppliers-wrap"></div>
+
+  <script src="../app.js"></script>
+  <script>
+    requireAuth();
+
+    async function load() {
+      showMsg('msg', 'Загрузка...', '');
+      const wrap = document.getElementById('suppliers-wrap');
+      wrap.innerHTML = '';
+      try {
+        const suppliers = await api('/api/suppliers');
+        if (!suppliers || !suppliers.length) {
+          showMsg('msg', 'Поставщики не найдены.', '');
+          return;
+        }
+        showMsg('msg', '', '');
+        const table = document.createElement('table');
+        table.className = 'admin-table';
+        table.innerHTML =
+          '<thead><tr>' +
+          '<th>Код</th><th>Название</th><th>Активен</th>' +
+          '<th>Наценка %</th><th>Валюта</th><th></th>' +
+          '</tr></thead>';
+        const tbody = document.createElement('tbody');
+        suppliers.forEach((s) => {
+          const tr = document.createElement('tr');
+          tr.dataset.code = s.code;
+
+          const activeCheck = document.createElement('input');
+          activeCheck.type = 'checkbox';
+          activeCheck.checked = !!s.isActive;
+          activeCheck.className = 'field-isActive';
+
+          const markupInput = document.createElement('input');
+          markupInput.type = 'number';
+          markupInput.step = '0.01';
+          markupInput.value = s.markupPercent != null ? s.markupPercent : '';
+          markupInput.className = 'field-markupPercent admin-input';
+
+          const currencyInput = document.createElement('input');
+          currencyInput.type = 'text';
+          currencyInput.maxLength = 10;
+          currencyInput.value = s.currency || '';
+          currencyInput.className = 'field-currency admin-input';
+
+          const saveBtn = document.createElement('button');
+          saveBtn.textContent = 'Сохранить';
+          saveBtn.onclick = () => saveRow(s.code, tr, saveBtn);
+
+          const tdCode = document.createElement('td'); tdCode.textContent = s.code;
+          const tdName = document.createElement('td'); tdName.textContent = s.name || '';
+          const tdActive = document.createElement('td'); tdActive.appendChild(activeCheck);
+          const tdMarkup = document.createElement('td'); tdMarkup.appendChild(markupInput);
+          const tdCurrency = document.createElement('td'); tdCurrency.appendChild(currencyInput);
+          const tdAction = document.createElement('td'); tdAction.appendChild(saveBtn);
+
+          tr.append(tdCode, tdName, tdActive, tdMarkup, tdCurrency, tdAction);
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+      } catch (err) {
+        showMsg('msg', 'Ошибка загрузки: ' + err.message, 'err');
+      }
+    }
+
+    async function saveRow(code, tr, btn) {
+      btn.disabled = true;
+      const isActive = tr.querySelector('.field-isActive').checked;
+      const markupVal = tr.querySelector('.field-markupPercent').value;
+      const currency = tr.querySelector('.field-currency').value.trim();
+      const payload = { isActive };
+      if (markupVal !== '') payload.markupPercent = parseFloat(markupVal);
+      if (currency !== '') payload.currency = currency;
+      try {
+        await api('/api/suppliers/' + encodeURIComponent(code), {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        });
+        showMsg('msg', 'Поставщик ' + code + ' сохранён.', 'ok');
+      } catch (err) {
+        showMsg('msg', 'Ошибка сохранения ' + code + ': ' + err.message, 'err');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

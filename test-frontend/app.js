@@ -56,4 +56,24 @@ function showMsg(id, text, kind) {
 
 function money(n) { return (Number(n) || 0).toLocaleString('ru-RU') + ' ₸'; }
 
-document.addEventListener('DOMContentLoaded', renderNav);
+async function getProfile() {
+  try { return (await api('/api/auth/profile')).user; } catch { return null; }
+}
+function isAdmin(user) {
+  const r = (user && user.roles) || [];
+  return r.includes('admin') || r.includes('ADMIN');
+}
+
+async function renderAdminNav() {
+  const el = document.getElementById('nav');
+  if (!el || !getToken()) return;
+  const user = await getProfile();
+  if (!isAdmin(user)) return;
+  // Determine path prefix (admin pages are one level deeper)
+  const isInAdmin = location.pathname.includes('/admin/');
+  const prefix = isInAdmin ? '../' : '';
+  el.innerHTML += ' · <a href="' + prefix + 'admin/suppliers.html">Поставщики</a>' +
+    ' · <a href="' + prefix + 'admin/settings.html">Настройки</a>';
+}
+
+document.addEventListener('DOMContentLoaded', () => { renderNav(); renderAdminNav(); });
