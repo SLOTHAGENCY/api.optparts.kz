@@ -34,6 +34,7 @@ import { PartnerProduct } from './partner-products/entities/partner-product.enti
 import { PartnerProductsModule } from './partner-products/partner-products.module';
 import { AppSetting } from './settings/entities/app-setting.entity';
 import { SettingsModule } from './settings/settings.module';
+import { BrandMarkup } from './pricing/entities/brand-markup.entity';
 
 @Module({
   imports: [
@@ -45,7 +46,7 @@ import { SettingsModule } from './settings/settings.module';
         username: process.env.DB_USERNAME || 'postgres',
         password: process.env.DB_PASSWORD || 'postgres',
         database: process.env.DB_NAME || 'nestjs_auth',
-        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting],
+        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting, BrandMarkup],
         migrations: ['dist/migrations/*.js'],
         synchronize: process.env.NODE_ENV === 'development',
         logging: process.env.NODE_ENV === 'development',
