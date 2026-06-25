@@ -254,3 +254,19 @@ describe('OrdersService manager controls', () => {
     expect(sub.returnStatus).toBe('REQUESTED');
   });
 });
+
+describe('OrdersService cost-price exposure', () => {
+  it('public order view strips costPrice from items; manager view keeps it', () => {
+    const { service } = makeDeps([], {});
+    const svc: any = service;
+    const order = {
+      status: OrderStatus.PLACED,
+      items: [{ article: 'A1', sellPrice: 6000, costPrice: 5000 }],
+    };
+    const pub = svc.withLabelPublic(order);
+    expect(pub.items[0]).not.toHaveProperty('costPrice');
+    expect(pub.items[0].sellPrice).toBe(6000);
+    const mgr = svc.withLabel(order);
+    expect(mgr.items[0].costPrice).toBe(5000);
+  });
+});

@@ -60,13 +60,13 @@ export class OrdersService {
       where: { userId },
       order: { createdAt: 'DESC' },
     });
-    return orders.map(this.withLabel);
+    return orders.map(this.withLabelPublic);
   }
 
   async findOne(id: string, userId: string): Promise<any> {
     const order = await this.orderRepo.findOne({ where: { id, userId } });
     if (!order) throw new NotFoundException('Order not found.');
-    return this.withLabel(order);
+    return this.withLabelPublic(order);
   }
 
   async findAll(): Promise<any[]> {
@@ -151,7 +151,7 @@ export class OrdersService {
     }
     await this.cart.clearCart(userId);
 
-    return this.withLabel(saved);
+    return this.withLabelPublic(saved);
   }
 
   private buildOrderItem(item: CheckoutItem): OrderItem {
@@ -335,7 +335,7 @@ export class OrdersService {
       throw new BadRequestException('Cannot cancel a delivered order.');
     }
     order.status = OrderStatus.CANCELLED;
-    return this.withLabel(await this.orderRepo.save(order));
+    return this.withLabelPublic(await this.orderRepo.save(order));
   }
 
   async upsertComment(
@@ -361,7 +361,20 @@ export class OrdersService {
     return this.withLabel(await this.orderRepo.save(order));
   }
 
-  private withLabel(order: Order) {
-    return { ...order, statusLabel: OrderStatusLabel[order.status] };
-  }
+  // Arrow properties so they keep `this` when passed to Array.map.
+  /** Manager view: keeps costPrice (margin) on items. */
+  private withLabel = (order: Order) => ({
+    ...order,
+    statusLabel: OrderStatusLabel[order.status],
+  });
+
+  /** Buyer view: strips costPrice from items so we never expose our margin. */
+  private withLabelPublic = (order: Order) => {
+    const labeled: any = this.withLabel(order);
+    labeled.items = (labeled.items ?? []).map((it: any) => {
+      const { costPrice, ...rest } = it;
+      return rest;
+    });
+    return labeled;
+  };
 }
