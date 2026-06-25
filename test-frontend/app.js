@@ -29,7 +29,14 @@ async function api(path, opts = {}) {
 }
 
 function requireAuth() { if (!getToken()) location.href = 'login.html'; }
-function logout() { clearToken(); setUser(null); location.href = 'login.html'; }
+async function logout() {
+  // Best-effort server logout (no-op server-side, but keeps the contract).
+  try { await api('/api/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
+  clearToken();
+  setUser(null);
+  const prefix = location.pathname.includes('/admin/') ? '../' : '';
+  location.href = prefix + 'login.html';
+}
 
 function renderNav() {
   const u = getUser();
@@ -73,7 +80,8 @@ async function renderAdminNav() {
   // Determine path prefix (admin pages are one level deeper)
   const isInAdmin = location.pathname.includes('/admin/');
   const prefix = isInAdmin ? '../' : '';
-  el.innerHTML += ' · <a href="' + prefix + 'admin/suppliers.html">Поставщики</a>' +
+  el.innerHTML += ' · <a href="' + prefix + 'admin/orders.html">Заказы (админ)</a>' +
+    ' · <a href="' + prefix + 'admin/suppliers.html">Поставщики</a>' +
     ' · <a href="' + prefix + 'admin/settings.html">Настройки</a>';
 }
 
