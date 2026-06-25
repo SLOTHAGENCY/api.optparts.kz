@@ -211,6 +211,7 @@ export class CartService {
       const currentPrice = await this.pricing.applyMarkup(
         offer.costPrice,
         item.supplierCode,
+        offer.currency,
       );
       const priceAtAdd = Number(item.priceAtAdd);
       return {

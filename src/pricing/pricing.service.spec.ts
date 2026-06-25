@@ -1,47 +1,47 @@
 import { PricingService } from './pricing.service';
 
-function makeService(markupPercent: number | null | 'no-row') {
+function make(opts: {
+  supplier?: { markupPercent?: number | null; currency?: string | null };
+  rates?: Record<string, number>;
+  buffer?: number;
+  defaultMarkup?: number;
+} = {}) {
   const suppliersService = {
-    findByCode: jest.fn(async () =>
-      markupPercent === 'no-row' ? null : { code: 'rossko', markupPercent },
-    ),
+    findByCode: jest.fn(async () => opts.supplier ?? { markupPercent: null, currency: null }),
   };
-  return new PricingService(suppliersService as any);
+  const settings = {
+    getFxRates: jest.fn(async () => opts.rates ?? { KZT: 1 }),
+    getFxBufferPercent: jest.fn(async () => opts.buffer ?? 0),
+    getDefaultMarkup: jest.fn(async () => opts.defaultMarkup ?? 20),
+  };
+  return new PricingService(suppliersService as any, settings as any);
 }
 
 describe('PricingService.applyMarkup', () => {
-  const OLD_ENV = process.env.DEFAULT_MARKUP_PERCENT;
-  afterEach(() => {
-    process.env.DEFAULT_MARKUP_PERCENT = OLD_ENV;
+  it('KZT cost, default markup 20%', async () => {
+    const p = make();
+    expect(await p.applyMarkup(1000, 'x', 'KZT')).toBe(1200);
   });
 
-  it('uses the partner markupPercent when set', async () => {
-    const service = makeService(25);
-    await expect(service.applyMarkup(1000, 'rossko')).resolves.toBe(1250);
+  it('converts RUB to KZT (rate) then applies markup', async () => {
+    const p = make({ rates: { RUB: 5, KZT: 1 }, supplier: { markupPercent: 10, currency: null } });
+    // 100 RUB * 5 = 500 KZT; +10% = 550
+    expect(await p.applyMarkup(100, 'x', 'RUB')).toBe(550);
   });
 
-  it('falls back to DEFAULT_MARKUP_PERCENT when partner markup is null', async () => {
-    process.env.DEFAULT_MARKUP_PERCENT = '20';
-    const service = makeService(null);
-    await expect(service.applyMarkup(1000, 'rossko')).resolves.toBe(1200);
+  it('applies FX buffer before markup', async () => {
+    const p = make({ rates: { RUB: 5, KZT: 1 }, buffer: 10, supplier: { markupPercent: 0, currency: null } });
+    // 100 * 5 * 1.10 = 550; +0% = 550
+    expect(await p.applyMarkup(100, 'x', 'RUB')).toBe(550);
   });
 
-  it('falls back to DEFAULT_MARKUP_PERCENT when partner row is missing', async () => {
-    process.env.DEFAULT_MARKUP_PERCENT = '10';
-    const service = makeService('no-row');
-    await expect(service.applyMarkup(1000, 'ghost')).resolves.toBe(1100);
+  it('supplier currency override beats the offer currency', async () => {
+    const p = make({ rates: { RUB: 5, KZT: 1 }, supplier: { markupPercent: 0, currency: 'RUB' } });
+    expect(await p.applyMarkup(100, 'x', 'KZT')).toBe(500); // forced RUB
   });
 
-  it('defaults to 20 percent when env is unset', async () => {
-    delete process.env.DEFAULT_MARKUP_PERCENT;
-    const service = makeService(null);
-    await expect(service.applyMarkup(1000, 'rossko')).resolves.toBe(1200);
-  });
-
-  it('rounds to the nearest whole tenge', async () => {
-    const service = makeService(15);
-    // 5200 * 1.15 = 5980 exactly; use a non-integer case:
-    const svc = makeService(13);
-    await expect(svc.applyMarkup(999, 'rossko')).resolves.toBe(1129); // 999*1.13 = 1128.87 -> 1129
+  it('unknown currency falls back to rate 1', async () => {
+    const p = make({ rates: { KZT: 1 }, supplier: { markupPercent: 0, currency: null } });
+    expect(await p.applyMarkup(100, 'x', 'EUR')).toBe(100);
   });
 });

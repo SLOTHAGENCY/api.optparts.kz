@@ -117,6 +117,7 @@ export class SearchService {
     const sellPrice = await this.pricing.applyMarkup(
       offer.costPrice,
       offer.supplierCode,
+      offer.currency,
     );
     return {
       article: offer.article,
