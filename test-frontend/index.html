@@ -25,8 +25,6 @@
     function offerRow(group, offer) {
       const tr = document.createElement('tr');
       tr.innerHTML =
-        '<td>' + (group.brand || '') + '</td>' +
-        '<td>' + (group.name || '') + '</td>' +
         '<td>' + (offer.supplierName || offer.supplierCode) + '</td>' +
         '<td>' + money(offer.sellPrice) + '</td>' +
         '<td>' + offer.deliveryDays + ' дн.</td>' +
@@ -40,20 +38,46 @@
       return tr;
     }
 
-    function renderGroups(title, groups) {
-      if (!groups || !groups.length) return '';
+    function renderGroupCard(group, isAnalog) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      const header = document.createElement('div');
+      header.className = 'card-header';
+      const title = document.createElement('span');
+      title.className = 'card-title';
+      title.textContent = (group.brand || '') + ' ' + (group.article || '') + ' — ' + (group.name || '');
+      header.appendChild(title);
+      if (isAnalog) {
+        const badge = document.createElement('span');
+        badge.className = 'badge-analog';
+        badge.textContent = 'аналог';
+        header.appendChild(badge);
+      }
+      card.appendChild(header);
+      if (group.offers && group.offers.length) {
+        const table = document.createElement('table');
+        table.innerHTML = '<thead><tr><th>Поставщик</th><th>Цена</th><th>Срок</th><th>Наличие</th><th></th></tr></thead>';
+        const tbody = document.createElement('tbody');
+        group.offers.forEach((o) => tbody.appendChild(offerRow(group, o)));
+        table.appendChild(tbody);
+        card.appendChild(table);
+      } else {
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.textContent = 'Нет предложений';
+        card.appendChild(p);
+      }
+      return card;
+    }
+
+    function renderGroups(title, groups, isAnalog) {
+      if (!groups || !groups.length) return null;
       const wrap = document.createElement('div');
       const h = document.createElement('div');
       h.className = 'section-title';
       h.textContent = title + ' (' + groups.length + ')';
       wrap.appendChild(h);
-      const table = document.createElement('table');
-      table.innerHTML = '<thead><tr><th>Бренд</th><th>Название</th><th>Поставщик</th>' +
-        '<th>Цена</th><th>Срок</th><th>Наличие</th><th></th></tr></thead>';
-      const tbody = document.createElement('tbody');
-      groups.forEach((g) => (g.offers || []).forEach((o) => tbody.appendChild(offerRow(g, o))));
-      table.appendChild(tbody);
-      wrap.appendChild(table);
+      groups.forEach((g) => wrap.appendChild(renderGroupCard(g, isAnalog)));
       return wrap;
     }
 
@@ -91,8 +115,8 @@
         const data = await api('/api/search?' + q.toString());
         const total = (data.exact || []).length + (data.analogs || []).length;
         showMsg('msg', total ? '' : 'Ничего не найдено.', '');
-        const exact = renderGroups('Точные совпадения', data.exact);
-        const analogs = renderGroups('Аналоги', data.analogs);
+        const exact = renderGroups('Точные совпадения', data.exact, false);
+        const analogs = renderGroups('Аналоги', data.analogs, true);
         if (exact) results.appendChild(exact);
         if (analogs) results.appendChild(analogs);
       } catch (err) {

@@ -22,3 +22,9 @@ th { background: #f5f5f5; }
 .admin-table td { vertical-align: middle; }
 .admin-input { width: 90px; padding: 3px 5px; margin: 0; }
 input[type="checkbox"] { width: auto; margin: 0; cursor: pointer; }
+/* Search result cards */
+.card { border: 1px solid #ddd; border-radius: 6px; padding: 12px 16px; margin-top: 16px; background: #fff; }
+.card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.card-title { font-size: 15px; font-weight: 600; }
+.badge-analog { background: #e8f4fd; color: #0077cc; border: 1px solid #b3d7f5; border-radius: 4px; font-size: 11px; padding: 1px 6px; }
+.card table { margin-top: 0; }

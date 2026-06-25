@@ -33,21 +33,24 @@
           const priceCell = it.priceChanged
             ? '<span class="changed">' + money(it.currentPrice) + '</span>'
             : money(it.currentPrice);
+          const maxQty = it.maxQuantity != null ? it.maxQuantity : Infinity;
+          const maxLabel = it.maxQuantity != null ? '<span class="muted"> макс. ' + it.maxQuantity + '</span>' : '';
           tr.innerHTML =
             '<td>' + it.brand + '</td>' +
             '<td>' + it.productName + '</td>' +
             '<td>' + (it.supplierName || it.supplierCode) + '</td>' +
             '<td>' + money(it.priceAtAdd) + '</td>' +
             '<td>' + priceCell + '</td>' +
-            '<td>' + it.quantity + '</td>' +
+            '<td>' + it.quantity + maxLabel + '</td>' +
             '<td>' + money(it.subtotal) + '</td>' +
             '<td>' + (it.available ? 'есть' : '<span class="gone">нет</span>') + '</td>';
           const actions = document.createElement('td');
           actions.className = 'row-actions';
           const inc = document.createElement('button'); inc.textContent = '+';
-          inc.onclick = () => updateQty(it.id, it.quantity + 1);
+          inc.disabled = it.quantity >= maxQty;
+          inc.onclick = () => updateQty(it.id, it.quantity + 1, tr);
           const dec = document.createElement('button'); dec.textContent = '−';
-          dec.onclick = () => updateQty(it.id, it.quantity - 1);
+          dec.onclick = () => updateQty(it.id, it.quantity - 1, tr);
           dec.disabled = it.quantity <= 1;
           const del = document.createElement('button'); del.textContent = '×';
           del.onclick = () => removeItem(it.id);
@@ -65,9 +68,17 @@
       }
     }
 
-    async function updateQty(id, qty) {
-      try { await api('/api/cart/items/' + id, { method: 'PUT', body: JSON.stringify({ quantity: qty }) }); load(); }
-      catch (err) { showMsg('msg', 'Ошибка: ' + err.message, 'err'); }
+    async function updateQty(id, qty, tr) {
+      try {
+        await api('/api/cart/items/' + id, { method: 'PUT', body: JSON.stringify({ quantity: qty }) });
+        load();
+      } catch (err) {
+        if (err.status === 400) {
+          showMsg('msg', err.message, 'err');
+        } else {
+          showMsg('msg', 'Ошибка: ' + err.message, 'err');
+        }
+      }
     }
     async function removeItem(id) {
       try { await api('/api/cart/items/' + id, { method: 'DELETE' }); load(); }
