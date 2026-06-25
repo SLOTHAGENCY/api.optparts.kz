@@ -2,6 +2,7 @@ import {
   Entity, PrimaryGeneratedColumn, Column, ManyToOne,
   OneToMany, JoinColumn, CreateDateColumn, UpdateDateColumn,
 } from 'typeorm';
+import { ApiProperty } from '@nestjs/swagger';
 import { User } from '../../users/entities/user.entity';
 import { Address } from '../../addresses/entities/address.entity';
 import { OrderItem } from './order-item.entity';
@@ -67,6 +68,10 @@ export class Order {
 
   @Column({ type: 'varchar', default: DeliveryType.DELIVERY })
   deliveryType: DeliveryType;
+
+  @ApiProperty({ description: 'True when the order was placed in test mode (not sent to suppliers).', example: false })
+  @Column({ default: false })
+  isTest: boolean;
 
   @Column({ type: 'text', nullable: true, default: null })
   managerComment: string | null;

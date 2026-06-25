@@ -20,6 +20,13 @@
     <label>DELIVERY_BUFFER_DAYS</label>
     <input id="field-delivery-buffer" type="number" step="1" min="0" placeholder="например 3" />
 
+    <label>Режим заказов
+      <select id="orderMode">
+        <option value="test">Тестовый (не отправлять партнёрам)</option>
+        <option value="prod">Прод (отправлять партнёрам)</option>
+      </select>
+    </label>
+
     <h2 style="font-size:16px;margin-top:20px;">Курсы валют (FX_RATES)</h2>
     <div id="fx-rows"></div>
     <button type="button" id="add-fx-row">+ Добавить валюту</button>
@@ -75,6 +82,7 @@
           data.FX_BUFFER_PERCENT != null ? data.FX_BUFFER_PERCENT : '';
         document.getElementById('field-delivery-buffer').value =
           data.DELIVERY_BUFFER_DAYS != null ? data.DELIVERY_BUFFER_DAYS : '';
+        document.getElementById('orderMode').value = data.ORDER_MODE || 'test';
 
         const fxRates = data.FX_RATES || {};
         // Ensure standard currencies appear first
@@ -115,6 +123,7 @@
       if (defaultMarkup !== '') payload.DEFAULT_MARKUP_PERCENT = parseFloat(defaultMarkup);
       if (fxBuffer !== '') payload.FX_BUFFER_PERCENT = parseFloat(fxBuffer);
       if (deliveryBuffer !== '') payload.DELIVERY_BUFFER_DAYS = Number(deliveryBuffer);
+      payload.ORDER_MODE = document.getElementById('orderMode').value;
 
       try {
         await api('/api/settings', { method: 'PUT', body: JSON.stringify(payload) });

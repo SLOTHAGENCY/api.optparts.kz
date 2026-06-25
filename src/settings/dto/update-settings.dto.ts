@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsObject, IsOptional, IsNumber, Min } from 'class-validator';
+import { IsObject, IsOptional, IsNumber, Min, IsIn } from 'class-validator';
 
 export class UpdateSettingsDto {
   @ApiPropertyOptional({ example: 20 })
@@ -17,4 +17,8 @@ export class UpdateSettingsDto {
   @ApiPropertyOptional({ example: 2 })
   @IsOptional() @IsNumber() @Min(0)
   DELIVERY_BUFFER_DAYS?: number;
+
+  @ApiPropertyOptional({ example: 'test', enum: ['test', 'prod'] })
+  @IsOptional() @IsIn(['test', 'prod'])
+  ORDER_MODE?: 'test' | 'prod';
 }

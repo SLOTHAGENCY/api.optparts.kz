@@ -1,0 +1,50 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - link "Поиск" [ref=e3] [cursor=pointer]:
+      - /url: index.html
+    - text: ·
+    - link "Корзина" [ref=e4] [cursor=pointer]:
+      - /url: cart.html
+    - text: ·
+    - link "Заказы" [ref=e5] [cursor=pointer]:
+      - /url: orders.html
+    - text: ·
+    - link "Профиль" [ref=e6] [cursor=pointer]:
+      - /url: profile.html
+    - text: · admin@optparts.kz ·
+    - link "Выйти" [ref=e7] [cursor=pointer]:
+      - /url: "#"
+    - text: ·
+    - link "Заказы (админ)" [ref=e8] [cursor=pointer]:
+      - /url: ../admin/orders.html
+    - text: ·
+    - link "Поставщики" [ref=e9] [cursor=pointer]:
+      - /url: ../admin/suppliers.html
+    - text: ·
+    - link "Настройки" [ref=e10] [cursor=pointer]:
+      - /url: ../admin/settings.html
+  - heading "Настройки системы" [level=1] [ref=e11]
+  - generic [ref=e12]:
+    - generic [ref=e13]: DEFAULT_MARKUP_PERCENT
+    - spinbutton [ref=e14]: "20"
+    - generic [ref=e15]: FX_BUFFER_PERCENT
+    - spinbutton [ref=e16]: "0"
+    - generic [ref=e17]: DELIVERY_BUFFER_DAYS
+    - spinbutton [ref=e18]: "0"
+    - generic [ref=e19]:
+      - text: Режим заказов
+      - combobox "Режим заказов" [ref=e20]:
+        - option "Тестовый (не отправлять партнёрам)" [selected]
+        - option "Прод (отправлять партнёрам)"
+    - heading "Курсы валют (FX_RATES)" [level=2] [ref=e21]
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - textbox "Код (напр. RUB)" [ref=e24]: RUB
+        - spinbutton [ref=e25]: "5"
+        - button "×" [ref=e26] [cursor=pointer]
+      - generic [ref=e27]:
+        - textbox "Код (напр. RUB)" [ref=e28]: KZT
+        - spinbutton [ref=e29]: "1"
+        - button "×" [ref=e30] [cursor=pointer]
+    - button "+ Добавить валюту" [ref=e31] [cursor=pointer]
+    - button "Сохранить" [ref=e32] [cursor=pointer]

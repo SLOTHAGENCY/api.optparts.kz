@@ -11,6 +11,7 @@ import { CartModule } from '../cart/cart.module';
 import { CartService } from '../cart/cart.service';
 import { CART_CHECKOUT } from './cart-checkout.contract';
 import { AddressesModule } from '../addresses/addresses.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { AddressesModule } from '../addresses/addresses.module';
     PartnerProductsModule,
     CartModule,
     AddressesModule,
+    SettingsModule,
   ],
   providers: [
     OrdersService,
