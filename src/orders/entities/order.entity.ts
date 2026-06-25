@@ -27,6 +27,16 @@ export const OrderStatusLabel: Record<OrderStatus, string> = {
   [OrderStatus.CANCELLED]: 'Отменен',
 };
 
+export enum DeliveryType {
+  DELIVERY = 'delivery',
+  PICKUP = 'pickup',
+}
+
+export const DeliveryTypeLabel: Record<DeliveryType, string> = {
+  [DeliveryType.DELIVERY]: 'Доставка',
+  [DeliveryType.PICKUP]: 'Самовывоз',
+};
+
 @Entity('orders')
 export class Order {
   @PrimaryGeneratedColumn('uuid')
@@ -55,6 +65,9 @@ export class Order {
   @Column({ type: 'varchar', default: OrderStatus.NEW })
   status: OrderStatus;
 
+  @Column({ type: 'varchar', default: DeliveryType.DELIVERY })
+  deliveryType: DeliveryType;
+
   @Column({ type: 'text', nullable: true, default: null })
   managerComment: string | null;
 
@@ -72,5 +85,9 @@ export class Order {
 
   get statusLabel(): string {
     return OrderStatusLabel[this.status];
+  }
+
+  get deliveryTypeLabel(): string {
+    return DeliveryTypeLabel[this.deliveryType];
   }
 }

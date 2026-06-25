@@ -9,7 +9,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Order, OrderStatus, OrderStatusLabel } from './entities/order.entity';
+import {
+  DeliveryType,
+  DeliveryTypeLabel,
+  Order,
+  OrderStatus,
+  OrderStatusLabel,
+} from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { SupplierOrder } from './entities/supplier-order.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -21,6 +27,7 @@ import {
 } from './cart-checkout.contract';
 import { SuppliersRegistry } from '../suppliers/suppliers.registry';
 import { PartnerProductsService } from '../partner-products/partner-products.service';
+import { AddressesService } from '../addresses/addresses.service';
 import {
   PlaceOrderItem,
   ReturnItem,
@@ -51,6 +58,7 @@ export class OrdersService {
     private readonly cart: CartCheckoutContract,
     private readonly suppliersRegistry: SuppliersRegistry,
     private readonly partnerProducts: PartnerProductsService,
+    private readonly addresses: AddressesService,
   ) {}
 
   // ---- Reads ----
@@ -83,6 +91,18 @@ export class OrdersService {
   // ---- Checkout (Spec C §4) ----
 
   async create(userId: string, dto: CreateOrderDto): Promise<any> {
+    // Resolve the delivery target. For delivery the address is mandatory and
+    // must belong to the user; for pickup no address is stored.
+    let addressId: string | null = null;
+    if (dto.deliveryType === DeliveryType.DELIVERY) {
+      if (!dto.addressId) {
+        throw new BadRequestException('addressId is required for delivery.');
+      }
+      // Throws NotFound/Forbidden if the address is missing or not the user's.
+      const address = await this.addresses.findOne(dto.addressId, userId);
+      addressId = address.id;
+    }
+
     const items = await this.cart.getCheckoutItems(userId);
     if (!items.length) {
       throw new ConflictException({ message: 'Cart is empty.', changes: [] });
@@ -111,7 +131,8 @@ export class OrdersService {
     // §4.3 — create Order + immutable order_item snapshots (prices from currentPrice).
     const order = this.orderRepo.create({
       userId,
-      addressId: dto.addressId ?? null,
+      deliveryType: dto.deliveryType,
+      addressId,
       status: OrderStatus.NEW,
       totalAmount: items.reduce(
         (sum, i) => sum + i.currentPrice * i.quantity,
@@ -366,6 +387,7 @@ export class OrdersService {
   private withLabel = (order: Order) => ({
     ...order,
     statusLabel: OrderStatusLabel[order.status],
+    deliveryTypeLabel: DeliveryTypeLabel[order.deliveryType],
   });
 
   /** Buyer view: strips costPrice from items so we never expose our margin. */

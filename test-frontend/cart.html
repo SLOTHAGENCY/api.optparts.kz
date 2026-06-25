@@ -10,7 +10,21 @@
   <h1>Корзина</h1>
   <div id="msg" class="msg"></div>
   <div id="cart"></div>
-  <p><button id="checkout">Оформить заказ</button></p>
+
+  <div id="checkoutBox" style="display:none;">
+    <div class="section-title">Оформление</div>
+    <label>Способ получения</label>
+    <label><input type="radio" name="deliveryType" value="delivery" checked /> Доставка</label>
+    <label><input type="radio" name="deliveryType" value="pickup" /> Самовывоз</label>
+
+    <div id="addressRow">
+      <label>Адрес доставки</label>
+      <select id="addressSelect"></select>
+      <div id="addrHint" class="msg"></div>
+    </div>
+
+    <p><button id="checkout">Оформить заказ</button></p>
+  </div>
 
   <script src="app.js"></script>
   <script>
@@ -22,6 +36,7 @@
       wrap.innerHTML = '';
       try {
         const cart = await api('/api/cart');
+        document.getElementById('checkoutBox').style.display = cart.items.length ? '' : 'none';
         if (!cart.items.length) { showMsg('msg', 'Корзина пуста.', ''); return; }
         showMsg('msg', cart.hasChanges ? 'Внимание: цены/наличие изменились с момента добавления.' : '', cart.hasChanges ? 'err' : '');
         const table = document.createElement('table');
@@ -85,10 +100,59 @@
       catch (err) { showMsg('msg', 'Ошибка: ' + err.message, 'err'); }
     }
 
+    // ===== Оформление =====
+    function selectedDeliveryType() {
+      const el = document.querySelector('input[name="deliveryType"]:checked');
+      return el ? el.value : 'delivery';
+    }
+
+    async function loadAddresses() {
+      const sel = document.getElementById('addressSelect');
+      const hint = document.getElementById('addrHint');
+      sel.innerHTML = '';
+      hint.textContent = '';
+      try {
+        const list = await api('/api/addresses');
+        if (!list.length) {
+          sel.style.display = 'none';
+          hint.innerHTML = 'Нет сохранённых адресов. <a href="profile.html">Добавьте адрес</a> или выберите самовывоз.';
+          return;
+        }
+        sel.style.display = '';
+        list.forEach((a) => {
+          const opt = document.createElement('option');
+          opt.value = a.id;
+          opt.textContent = a.title + ' — ' + [a.street, a.city, a.postcode].filter(Boolean).join(', ') + (a.main ? ' (основной)' : '');
+          if (a.main) opt.selected = true;
+          sel.appendChild(opt);
+        });
+      } catch (err) {
+        hint.textContent = 'Не удалось загрузить адреса: ' + err.message;
+      }
+    }
+
+    function syncAddressRow() {
+      document.getElementById('addressRow').style.display =
+        selectedDeliveryType() === 'delivery' ? '' : 'none';
+    }
+    document.querySelectorAll('input[name="deliveryType"]').forEach((r) =>
+      r.addEventListener('change', syncAddressRow),
+    );
+
     document.getElementById('checkout').addEventListener('click', async () => {
+      const deliveryType = selectedDeliveryType();
+      const payload = { deliveryType };
+      if (deliveryType === 'delivery') {
+        const sel = document.getElementById('addressSelect');
+        if (!sel.value) {
+          showMsg('msg', 'Выберите адрес доставки или оформите самовывоз.', 'err');
+          return;
+        }
+        payload.addressId = sel.value;
+      }
       showMsg('msg', 'Оформление...', '');
       try {
-        await api('/api/orders', { method: 'POST', body: JSON.stringify({}) });
+        await api('/api/orders', { method: 'POST', body: JSON.stringify(payload) });
         location.href = 'orders.html';
       } catch (err) {
         if (err.status === 409) {
@@ -102,6 +166,8 @@
     });
 
     load();
+    loadAddresses();
+    syncAddressRow();
   </script>
 </body>
 </html>

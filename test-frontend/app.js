@@ -40,6 +40,7 @@ function renderNav() {
       '<a href="index.html">Поиск</a> · ' +
       '<a href="cart.html">Корзина</a> · ' +
       '<a href="orders.html">Заказы</a> · ' +
+      '<a href="profile.html">Профиль</a> · ' +
       '<span class="muted">' + (u ? (u.email || '') : '') + '</span> · ' +
       '<a href="#" onclick="logout();return false">Выйти</a>';
   } else {
