@@ -35,6 +35,7 @@ import { SupplierOrder } from './orders/entities/supplier-order.entity';
 import { PartnerProduct } from './partner-products/entities/partner-product.entity';
 import { PartnerProductsModule } from './partner-products/partner-products.module';
 import { AppSetting } from './settings/entities/app-setting.entity';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { AppSetting } from './settings/entities/app-setting.entity';
     SuppliersModule,
     PricingModule,
     SearchModule,
+    SettingsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
