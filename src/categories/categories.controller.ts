@@ -24,20 +24,36 @@ export class CategoriesController {
   /** GET /categories/tree — nested tree (root → children → grandchildren) */
   @Public()
   @Get('tree')
-  @ApiOperation({ summary: 'Get the full category tree (public)' })
+  @ApiOperation({
+    summary: 'Дерево категорий (общедоступно)',
+    description:
+      'Возвращает все категории каталога в виде дерева: корневые категории, внутри них ' +
+      'подкатегории, а в них — ещё более вложенные. Удобно для построения раскрывающегося меню ' +
+      'каталога на сайте. Доступно без авторизации.',
+  })
   getTree() { return this.categoriesService.findTree(); }
 
   /** GET /categories — flat list of all categories */
   @Public()
   @Get()
-  @ApiOperation({ summary: 'List all categories flat (public)' })
+  @ApiOperation({
+    summary: 'Список всех категорий одним списком (общедоступно)',
+    description:
+      'Возвращает все категории каталога обычным плоским списком (без вложенности). Удобно, ' +
+      'когда нужна простая выборка всех категорий, а не дерево. Доступно без авторизации.',
+  })
   findAll() { return this.categoriesService.findAll(); }
 
   @Public()
   @Get(':id')
-  @ApiOperation({ summary: 'Get a single category by id (public)' })
+  @ApiOperation({
+    summary: 'Получить категорию по id (общедоступно)',
+    description:
+      'Возвращает данные одной категории по её id. Если категория не найдена — вернётся ошибка ' +
+      '404. Доступно без авторизации.',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiResponse({ status: 404, description: 'Category not found.' })
+  @ApiResponse({ status: 404, description: 'Категория не найдена.' })
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.categoriesService.findById(id);
   }
@@ -45,17 +61,27 @@ export class CategoriesController {
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new category (MANAGER/ADMIN)' })
-  @ApiResponse({ status: 403, description: 'Admin/Manager only.' })
+  @ApiOperation({
+    summary: 'Создать категорию (менеджер/админ)',
+    description:
+      'Добавляет новую категорию в каталог. Можно указать родительскую категорию, чтобы сделать ' +
+      'её вложенной. Доступно только менеджеру или администратору.',
+  })
+  @ApiResponse({ status: 403, description: 'Только для менеджера/администратора.' })
   create(@Body() dto: CreateCategoryDto) {
     return this.categoriesService.create(dto);
   }
 
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Put(':id')
-  @ApiOperation({ summary: 'Update a category (MANAGER/ADMIN)' })
+  @ApiOperation({
+    summary: 'Изменить категорию (менеджер/админ)',
+    description:
+      'Обновляет данные существующей категории (например, название или родителя) по её id. ' +
+      'Доступно только менеджеру или администратору.',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiResponse({ status: 403, description: 'Admin/Manager only.' })
+  @ApiResponse({ status: 403, description: 'Только для менеджера/администратора.' })
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCategoryDto) {
     return this.categoriesService.update(id, dto);
   }
@@ -63,9 +89,14 @@ export class CategoriesController {
   @Roles(UserRole.ADMIN)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a category (ADMIN)' })
+  @ApiOperation({
+    summary: 'Удалить категорию (только админ)',
+    description:
+      'Удаляет категорию из каталога по её id. Это необратимое действие, поэтому доступно только ' +
+      'администратору. Менеджеру вернётся ошибка 403.',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiResponse({ status: 403, description: 'Admin only.' })
+  @ApiResponse({ status: 403, description: 'Только для администратора.' })
   delete(@Param('id', ParseUUIDPipe) id: string) {
     return this.categoriesService.delete(id);
   }

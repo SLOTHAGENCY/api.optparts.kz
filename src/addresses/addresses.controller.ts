@@ -23,16 +23,26 @@ export class AddressesController {
 
   /** GET /addresses — list all addresses for current user */
   @Get()
-  @ApiOperation({ summary: 'List all delivery addresses for the current user' })
+  @ApiOperation({
+    summary: 'Список адресов доставки пользователя',
+    description:
+      'Возвращает все сохранённые адреса доставки текущего пользователя. Из этого списка клиент ' +
+      'выбирает, куда доставить заказ. Каждый пользователь видит только свои адреса. Требует авторизации.',
+  })
   findAll(@CurrentUser() user: User) {
     return this.addressesService.findAllByUser(user.id);
   }
 
   /** GET /addresses/:id */
   @Get(':id')
-  @ApiOperation({ summary: 'Get a single delivery address by id' })
+  @ApiOperation({
+    summary: 'Получить один адрес доставки по id',
+    description:
+      'Возвращает данные одного конкретного адреса доставки пользователя по его id. Если адрес ' +
+      'не найден (или принадлежит другому пользователю) — вернётся ошибка 404. Требует авторизации.',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiResponse({ status: 404, description: 'Address not found.' })
+  @ApiResponse({ status: 404, description: 'Адрес не найден.' })
   findOne(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
     return this.addressesService.findOne(id, user.id);
   }
@@ -40,14 +50,25 @@ export class AddressesController {
   /** POST /addresses */
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new delivery address' })
+  @ApiOperation({
+    summary: 'Добавить новый адрес доставки',
+    description:
+      'Сохраняет новый адрес доставки для текущего пользователя (город, улица, дом и т.д.). ' +
+      'Адрес добавляется в личный список и потом доступен для выбора при оформлении заказа. ' +
+      'Требует авторизации.',
+  })
   create(@CurrentUser() user: User, @Body() dto: CreateAddressDto) {
     return this.addressesService.create(user.id, dto);
   }
 
   /** PUT /addresses/:id */
   @Put(':id')
-  @ApiOperation({ summary: 'Replace a delivery address' })
+  @ApiOperation({
+    summary: 'Изменить адрес доставки',
+    description:
+      'Обновляет данные существующего адреса доставки по его id. Используется, чтобы исправить ' +
+      'или дополнить ранее сохранённый адрес. Менять можно только свои адреса. Требует авторизации.',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
   update(
     @CurrentUser() user: User,
@@ -59,7 +80,13 @@ export class AddressesController {
 
   /** PATCH /addresses/:id/main — set as main address */
   @Patch(':id/main')
-  @ApiOperation({ summary: 'Set an address as the default delivery address' })
+  @ApiOperation({
+    summary: 'Сделать адрес основным (по умолчанию)',
+    description:
+      'Помечает выбранный адрес как основной. Основной адрес автоматически подставляется при ' +
+      'оформлении заказа. Основным может быть только один адрес: предыдущий основной перестаёт ' +
+      'быть таковым. Требует авторизации.',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
   setMain(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
     return this.addressesService.setMain(id, user.id);
@@ -68,7 +95,11 @@ export class AddressesController {
   /** DELETE /addresses/:id */
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a delivery address' })
+  @ApiOperation({
+    summary: 'Удалить адрес доставки',
+    description:
+      'Удаляет сохранённый адрес доставки по его id. Удалить можно только свой адрес. Требует авторизации.',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
   delete(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
     return this.addressesService.delete(id, user.id);

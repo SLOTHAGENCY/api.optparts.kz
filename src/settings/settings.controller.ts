@@ -15,15 +15,28 @@ export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get global settings (markup, FX rates, buffer) (ADMIN)' })
-  @ApiResponse({ status: 403, description: 'Admin only.' })
+  @ApiOperation({
+    summary: 'Получить глобальные настройки системы (только админ)',
+    description:
+      'Возвращает общие настройки магазина, которые влияют на расчёт цен и сроков: процент ' +
+      'наценки, курсы валют для пересчёта цен поставщиков и буфер к сроку доставки. Доступно ' +
+      'только администратору.',
+  })
+  @ApiResponse({ status: 403, description: 'Только для администратора.' })
   get(): Promise<AppSettings> {
     return this.settings.getAll();
   }
 
   @Put()
-  @ApiOperation({ summary: 'Update global settings (ADMIN)' })
-  @ApiResponse({ status: 403, description: 'Admin only.' })
+  @ApiOperation({
+    summary: 'Изменить глобальные настройки системы (только админ)',
+    description:
+      'Обновляет общие настройки магазина: наценку, курсы валют, буфер срока доставки. Изменения ' +
+      'сразу влияют на то, какие итоговые цены и сроки видят покупатели. Можно присылать только ' +
+      'те поля, которые нужно поменять. В ответ возвращаются актуальные настройки. Доступно ' +
+      'только администратору.',
+  })
+  @ApiResponse({ status: 403, description: 'Только для администратора.' })
   async update(@Body() dto: UpdateSettingsDto): Promise<AppSettings> {
     await this.settings.update(dto);
     return this.settings.getAll();
