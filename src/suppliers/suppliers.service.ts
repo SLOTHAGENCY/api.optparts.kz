@@ -28,6 +28,7 @@ export class SuppliersService {
     if (dto.markupPercent !== undefined) supplier.markupPercent = dto.markupPercent;
     if (dto.currency !== undefined) supplier.currency = dto.currency;
     if (dto.config !== undefined) supplier.config = dto.config;
+    if (dto.deliveryBufferDays !== undefined) supplier.deliveryBufferDays = dto.deliveryBufferDays;
     return this.repo.save(supplier);
   }
 }

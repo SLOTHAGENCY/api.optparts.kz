@@ -15,6 +15,8 @@ import {
   SupplierOrderResult,
   SupplierOrderStatusValue,
 } from '../../types';
+import { resolveConfig, hasKeys } from '../../connector-config.util';
+import { SuppliersService } from '../../suppliers.service';
 
 @Injectable()
 export class RosskoConnector implements SupplierConnector {
@@ -22,6 +24,20 @@ export class RosskoConnector implements SupplierConnector {
   readonly name = 'Rossko';
 
   private readonly logger = new Logger(RosskoConnector.name);
+
+  private readonly envMap = {
+    KEY1: 'ROSSKO_KEY1', KEY2: 'ROSSKO_KEY2',
+    DELIVERY_ID: 'ROSSKO_DELIVERY_ID', ADDRESS_ID: 'ROSSKO_ADDRESS_ID',
+    API_URL: 'ROSSKO_API_URL',
+  };
+
+  constructor(private readonly suppliers: SuppliersService) {}
+
+  async isConfigured(): Promise<boolean> {
+    return hasKeys(await resolveConfig(this.suppliers, this.code, this.envMap),
+      ['KEY1', 'KEY2', 'DELIVERY_ID', 'ADDRESS_ID']);
+  }
+
   private readonly parser = new XMLParser({
     ignoreAttributes: false,
     removeNSPrefix: true,
@@ -30,11 +46,13 @@ export class RosskoConnector implements SupplierConnector {
   });
 
   async search(article: string, brand?: string): Promise<SupplierOffer[]> {
-    const soap = this.buildSoapEnvelope(article);
+    const c = await resolveConfig(this.suppliers, this.code, this.envMap);
+    const soap = this.buildSoapEnvelope(article, c);
     let rawXml: string;
     try {
+      const baseUrl = c.API_URL || 'https://api.rossko.ru';
       const response = await axios.post(
-        `${process.env.ROSSKO_API_URL}/service/v2.1/GetSearch`,
+        `${baseUrl}/service/v2.1/GetSearch`,
         soap,
         {
           headers: {
@@ -121,11 +139,13 @@ export class RosskoConnector implements SupplierConnector {
   }
 
   async placeOrder(items: PlaceOrderItem[]): Promise<SupplierOrderResult> {
-    const soap = this.buildCheckoutEnvelope(items);
+    const c = await resolveConfig(this.suppliers, this.code, this.envMap);
+    const soap = this.buildCheckoutEnvelope(items, c);
     let rawXml: string;
     try {
+      const baseUrl = c.API_URL || 'https://api.rossko.ru';
       const response = await axios.post(
-        `${process.env.ROSSKO_API_URL}/service/v2.1/GetCheckout`,
+        `${baseUrl}/service/v2.1/GetCheckout`,
         soap,
         {
           headers: {
@@ -177,22 +197,24 @@ export class RosskoConnector implements SupplierConnector {
   }
 
   async getOrderStatus(externalOrderId: string): Promise<SupplierOrderStatusValue> {
+    const c = await resolveConfig(this.suppliers, this.code, this.envMap);
     // placeOrder may join several order numbers with commas; check the first.
     const id = String(externalOrderId).split(',')[0].trim();
     const soap = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
     <tns:GetOrders xmlns:tns="https://api.rossko.ru/">
-      <tns:KEY1>${process.env.ROSSKO_KEY1}</tns:KEY1>
-      <tns:KEY2>${process.env.ROSSKO_KEY2}</tns:KEY2>
+      <tns:KEY1>${c.KEY1}</tns:KEY1>
+      <tns:KEY2>${c.KEY2}</tns:KEY2>
       <tns:order_ids><tns:id>${this.escapeXml(id)}</tns:id></tns:order_ids>
     </tns:GetOrders>
   </soap:Body>
 </soap:Envelope>`;
     let rawXml: string;
     try {
+      const baseUrl = c.API_URL || 'https://api.rossko.ru';
       const response = await axios.post(
-        `${process.env.ROSSKO_API_URL}/service/v2.1/GetOrders`,
+        `${baseUrl}/service/v2.1/GetOrders`,
         soap,
         {
           headers: {
@@ -248,23 +270,23 @@ export class RosskoConnector implements SupplierConnector {
     return Number.isFinite(n) ? n : 0;
   }
 
-  private buildSoapEnvelope(text: string): string {
+  private buildSoapEnvelope(text: string, c: Record<string, string>): string {
     return `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
     <tns:GetSearch xmlns:tns="https://api.rossko.ru/">
-      <tns:KEY1>${process.env.ROSSKO_KEY1}</tns:KEY1>
-      <tns:KEY2>${process.env.ROSSKO_KEY2}</tns:KEY2>
+      <tns:KEY1>${c.KEY1}</tns:KEY1>
+      <tns:KEY2>${c.KEY2}</tns:KEY2>
       <tns:text>${this.escapeXml(text)}</tns:text>
-      <tns:delivery_id>${process.env.ROSSKO_DELIVERY_ID}</tns:delivery_id>
-      <tns:address_id>${process.env.ROSSKO_ADDRESS_ID}</tns:address_id>
+      <tns:delivery_id>${c.DELIVERY_ID}</tns:delivery_id>
+      <tns:address_id>${c.ADDRESS_ID}</tns:address_id>
     </tns:GetSearch>
   </soap:Body>
 </soap:Envelope>`;
   }
 
   /** Build the GetCheckout SOAP envelope (order placement). */
-  buildCheckoutEnvelope(items: PlaceOrderItem[]): string {
+  buildCheckoutEnvelope(items: PlaceOrderItem[], c: Record<string, string> = {}): string {
     const parts = items
       .map((i) => {
         const raw = (i.raw ?? {}) as Record<string, unknown>;
@@ -286,11 +308,11 @@ export class RosskoConnector implements SupplierConnector {
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
     <tns:GetCheckout xmlns:tns="https://api.rossko.ru/">
-      <tns:KEY1>${process.env.ROSSKO_KEY1}</tns:KEY1>
-      <tns:KEY2>${process.env.ROSSKO_KEY2}</tns:KEY2>
+      <tns:KEY1>${c.KEY1 ?? ''}</tns:KEY1>
+      <tns:KEY2>${c.KEY2 ?? ''}</tns:KEY2>
       <tns:delivery>
-        <tns:delivery_id>${process.env.ROSSKO_DELIVERY_ID}</tns:delivery_id>
-        <tns:address_id>${process.env.ROSSKO_ADDRESS_ID}</tns:address_id>
+        <tns:delivery_id>${c.DELIVERY_ID ?? ''}</tns:delivery_id>
+        <tns:address_id>${c.ADDRESS_ID ?? ''}</tns:address_id>
       </tns:delivery>
       <tns:payment>
         <tns:payment_id>${process.env.ROSSKO_PAYMENT_ID || '2'}</tns:payment_id>

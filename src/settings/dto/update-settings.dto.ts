@@ -13,4 +13,8 @@ export class UpdateSettingsDto {
   @ApiPropertyOptional({ example: 2 })
   @IsOptional() @IsNumber() @Min(0)
   FX_BUFFER_PERCENT?: number;
+
+  @ApiPropertyOptional({ example: 2 })
+  @IsOptional() @IsNumber() @Min(0)
+  DELIVERY_BUFFER_DAYS?: number;
 }

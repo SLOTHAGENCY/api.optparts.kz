@@ -5,12 +5,14 @@ import { SearchService } from './search.service';
 import { SearchController } from './search.controller';
 import { SuppliersModule } from '../suppliers/suppliers.module';
 import { PricingModule } from '../pricing/pricing.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([SearchLog]),
     SuppliersModule,
     PricingModule,
+    SettingsModule,
   ],
   controllers: [SearchController],
   providers: [SearchService],

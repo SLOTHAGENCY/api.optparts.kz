@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { SettingsService, AppSettings } from './settings.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -15,13 +15,15 @@ export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get global settings (markup, FX rates, buffer)' })
+  @ApiOperation({ summary: 'Get global settings (markup, FX rates, buffer) (ADMIN)' })
+  @ApiResponse({ status: 403, description: 'Admin only.' })
   get(): Promise<AppSettings> {
     return this.settings.getAll();
   }
 
   @Put()
-  @ApiOperation({ summary: 'Update global settings' })
+  @ApiOperation({ summary: 'Update global settings (ADMIN)' })
+  @ApiResponse({ status: 403, description: 'Admin only.' })
   async update(@Body() dto: UpdateSettingsDto): Promise<AppSettings> {
     await this.settings.update(dto);
     return this.settings.getAll();

@@ -14,6 +14,8 @@ import {
   SupplierOrderResult,
   SupplierOrderStatusValue,
 } from '../../types';
+import { resolveConfig, hasKeys } from '../../connector-config.util';
+import { SuppliersService } from '../../suppliers.service';
 
 /**
  * Tabys (api.tabys.parts) REST connector.
@@ -30,19 +32,33 @@ export class TabysConnector implements SupplierConnector {
 
   private readonly logger = new Logger(TabysConnector.name);
 
-  private http(): AxiosInstance {
+  private readonly envMap = {
+    API_KEY: 'TABYS_API_KEY', CONTRACT_ID: 'TABYS_CONTRACT_ID',
+    OUTLET_ID: 'TABYS_OUTLET_ID', DELIVERY_TYPE: 'TABYS_DELIVERY_TYPE',
+    API_URL: 'TABYS_API_URL',
+  };
+
+  constructor(private readonly suppliers: SuppliersService) {}
+
+  async isConfigured(): Promise<boolean> {
+    return hasKeys(await resolveConfig(this.suppliers, this.code, this.envMap),
+      ['API_KEY', 'CONTRACT_ID', 'OUTLET_ID']);
+  }
+
+  private http(c: Record<string, string>): AxiosInstance {
     return axios.create({
-      baseURL: process.env.TABYS_API_URL || 'https://api.tabys.parts',
+      baseURL: c.API_URL || 'https://api.tabys.parts',
       timeout: 15000,
       headers: {
-        'X-External-Api-Key': process.env.TABYS_API_KEY || '',
+        'X-External-Api-Key': c.API_KEY || '',
         'Content-Type': 'application/json',
       },
     });
   }
 
   async search(article: string, brand?: string): Promise<SupplierOffer[]> {
-    const client = this.http();
+    const c = await resolveConfig(this.suppliers, this.code, this.envMap);
+    const client = this.http(c);
 
     // Build brand+productCode pairs. With a brand → one pair; otherwise resolve
     // candidate brands for the article first.
@@ -61,8 +77,8 @@ export class TabysConnector implements SupplierConnector {
         '/v1/product-offers/by-brand-and-product-code',
         {
           products,
-          contractId: process.env.TABYS_CONTRACT_ID,
-          outletId: process.env.TABYS_OUTLET_ID,
+          contractId: c.CONTRACT_ID,
+          outletId: c.OUTLET_ID,
           enableAnalog: true,
           isInStockInHomeWarehousesOnly: false,
         },
@@ -126,11 +142,12 @@ export class TabysConnector implements SupplierConnector {
   }
 
   async placeOrder(items: PlaceOrderItem[]): Promise<SupplierOrderResult> {
-    const client = this.http();
+    const c = await resolveConfig(this.suppliers, this.code, this.envMap);
+    const client = this.http(c);
     const body = {
-      contractId: process.env.TABYS_CONTRACT_ID,
-      outletId: process.env.TABYS_OUTLET_ID,
-      deliveryType: process.env.TABYS_DELIVERY_TYPE || 'ToOutlet',
+      contractId: c.CONTRACT_ID,
+      outletId: c.OUTLET_ID,
+      deliveryType: c.DELIVERY_TYPE || 'ToOutlet',
       oneTimeDelivery: false,
       notGroupReserves: false,
       items: items.map((i) => ({
@@ -161,7 +178,8 @@ export class TabysConnector implements SupplierConnector {
   async getOrderStatus(
     externalOrderId: string,
   ): Promise<SupplierOrderStatusValue> {
-    const client = this.http();
+    const c = await resolveConfig(this.suppliers, this.code, this.envMap);
+    const client = this.http(c);
     try {
       const res = await client.post('/v1/orders-history/statuses', [
         externalOrderId,

@@ -14,6 +14,8 @@ import {
   SupplierOrderResult,
   SupplierOrderStatusValue,
 } from '../../types';
+import { resolveConfig, hasKeys } from '../../connector-config.util';
+import { SuppliersService } from '../../suppliers.service';
 
 /**
  * SHATE-M (api.shate-m.kz) REST connector. Mapping verified against the live
@@ -37,27 +39,41 @@ export class ShateMConnector implements SupplierConnector {
   private token: string | null = null;
   private tokenExpiresAt = 0;
 
-  private client(): AxiosInstance {
+  private readonly envMap = {
+    API_KEY: 'SHATE_API_KEY', LOGIN: 'SHATE_LOGIN', PASSWORD: 'SHATE_PASSWORD',
+    AGREEMENT_CODE: 'SHATE_AGREEMENT_CODE', DELIVERY_ADDRESS_CODE: 'SHATE_DELIVERY_ADDRESS_CODE',
+    DELIVERY_TYPE: 'SHATE_DELIVERY_TYPE', API_URL: 'SHATE_API_URL',
+  };
+
+  constructor(private readonly suppliers: SuppliersService) {}
+
+  async isConfigured(): Promise<boolean> {
+    const c = await resolveConfig(this.suppliers, this.code, this.envMap);
+    const auth = hasKeys(c, ['API_KEY']) || hasKeys(c, ['LOGIN', 'PASSWORD']);
+    return auth && hasKeys(c, ['AGREEMENT_CODE']);
+  }
+
+  private client(c: Record<string, string>): AxiosInstance {
     return axios.create({
-      baseURL: process.env.SHATE_API_URL || 'https://api.shate-m.kz',
+      baseURL: c.API_URL || 'https://api.shate-m.kz',
       timeout: 15000,
     });
   }
 
-  private async getToken(client: AxiosInstance): Promise<string> {
+  private async getToken(client: AxiosInstance, c: Record<string, string>): Promise<string> {
     if (this.token && Date.now() < this.tokenExpiresAt - 60_000) {
       return this.token;
     }
     const form = new URLSearchParams();
-    const apikey = process.env.SHATE_API_KEY;
+    const apikey = c.API_KEY;
     let path: string;
     if (apikey) {
       path = '/api/v1/auth/loginbyapikey';
       form.set('ApiKey', apikey);
     } else {
       path = '/api/v1/auth/login';
-      form.set('Login', process.env.SHATE_LOGIN || '');
-      form.set('Password', process.env.SHATE_PASSWORD || '');
+      form.set('Login', c.LOGIN || '');
+      form.set('Password', c.PASSWORD || '');
     }
     const res = await client.post(path, form.toString(), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -70,10 +86,11 @@ export class ShateMConnector implements SupplierConnector {
   }
 
   async search(article: string, brand?: string): Promise<SupplierOffer[]> {
-    const client = this.client();
+    const c = await resolveConfig(this.suppliers, this.code, this.envMap);
+    const client = this.client(c);
     let bearer: string;
     try {
-      bearer = await this.getToken(client);
+      bearer = await this.getToken(client, c);
     } catch (err: any) {
       this.logger.error('SHATE-M auth failed', err?.message);
       throw new BadRequestException('External parts API is unavailable.');
@@ -91,7 +108,7 @@ export class ShateMConnector implements SupplierConnector {
       });
       const cards: any[] = Array.isArray(ares.data) ? ares.data : [];
       const ids = [
-        ...new Set(cards.map((c) => c?.article?.id).filter((v) => v != null)),
+        ...new Set(cards.map((card) => card?.article?.id).filter((v) => v != null)),
       ];
       if (!ids.length) return [];
 
@@ -102,9 +119,8 @@ export class ShateMConnector implements SupplierConnector {
         {
           ...auth,
           params: {
-            AgreementCode: process.env.SHATE_AGREEMENT_CODE || undefined,
-            DeliveryAddressCode:
-              process.env.SHATE_DELIVERY_ADDRESS_CODE || undefined,
+            AgreementCode: c.AGREEMENT_CODE || undefined,
+            DeliveryAddressCode: c.DELIVERY_ADDRESS_CODE || undefined,
           },
         },
       );
@@ -171,10 +187,11 @@ export class ShateMConnector implements SupplierConnector {
   }
 
   async placeOrder(items: PlaceOrderItem[]): Promise<SupplierOrderResult> {
-    const client = this.client();
+    const c = await resolveConfig(this.suppliers, this.code, this.envMap);
+    const client = this.client(c);
     let bearer: string;
     try {
-      bearer = await this.getToken(client);
+      bearer = await this.getToken(client, c);
     } catch (err: any) {
       return { externalOrderId: null, status: 'FAILED', errorMessage: err?.message };
     }
@@ -182,11 +199,10 @@ export class ShateMConnector implements SupplierConnector {
       const res = await client.post(
         '/api/v1/orders/byPriceItems',
         {
-          agreementCode: process.env.SHATE_AGREEMENT_CODE,
+          agreementCode: c.AGREEMENT_CODE,
           deliveryInfo: {
-            deliveryType: process.env.SHATE_DELIVERY_TYPE || undefined,
-            deliveryAddressCode:
-              process.env.SHATE_DELIVERY_ADDRESS_CODE || undefined,
+            deliveryType: c.DELIVERY_TYPE || undefined,
+            deliveryAddressCode: c.DELIVERY_ADDRESS_CODE || undefined,
           },
           agreeWithTermsOfDelivery: true,
           agreeWithPersonalDataProcessingPolicyAndUserAgreement: true,
@@ -214,9 +230,10 @@ export class ShateMConnector implements SupplierConnector {
   async getOrderStatus(
     externalOrderId: string,
   ): Promise<SupplierOrderStatusValue> {
-    const client = this.client();
+    const c = await resolveConfig(this.suppliers, this.code, this.envMap);
+    const client = this.client(c);
     try {
-      const bearer = await this.getToken(client);
+      const bearer = await this.getToken(client, c);
       const res = await client.get('/api/v1/orders', {
         headers: { Authorization: `Bearer ${bearer}` },
         params: { orderId: externalOrderId },

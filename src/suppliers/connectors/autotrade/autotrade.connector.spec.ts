@@ -1,7 +1,7 @@
 import { AutotradeConnector } from './autotrade.connector';
 
 describe('AutotradeConnector.mapOffers', () => {
-  const connector = new AutotradeConnector();
+  const connector = new AutotradeConnector({ findByCode: async () => null } as any);
 
   // getItemsByQuery response (with_stocks_and_prices=1): items[] with embedded stocks.
   const sample = {
@@ -71,7 +71,7 @@ describe('AutotradeConnector.mapOffers', () => {
 });
 
 describe('AutotradeConnector.mapStatus', () => {
-  const connector = new AutotradeConnector();
+  const connector = new AutotradeConnector({ findByCode: async () => null } as any);
   it('maps document type/real flags to status', () => {
     expect(connector.mapStatus({ type_doc: 'Реализация', real: 1 })).toBe('DELIVERED');
     expect(connector.mapStatus({ type_doc: 'ЗаявкаПокупателя', real: 0 })).toBe('PLACED');

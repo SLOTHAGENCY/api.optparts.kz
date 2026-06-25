@@ -8,7 +8,6 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
 import { CartModule } from './cart/cart.module';
-import { DocsModule } from './docs/docs.module';
 import { AddressesModule } from './addresses/addresses.module';
 import { Address } from './addresses/entities/address.entity';
 import { User } from './users/entities/user.entity';
@@ -25,7 +24,6 @@ import { ProductImage } from './products/entities/product-image.entity';
 import { ProductProperty } from './products/entities/product-property.entity';
 import { Order } from './orders/entities/order.entity';
 import { OrderItem } from './orders/entities/order-item.entity';
-import { RosskoModule } from './rossko/rossko.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { PricingModule } from './pricing/pricing.module';
 import { SearchModule } from './search/search.module';
@@ -71,12 +69,10 @@ import { SettingsModule } from './settings/settings.module';
     UsersModule,
     ProductsModule,
     CartModule,
-    DocsModule,
     CategoriesModule,
     BrandsModule,
     OrdersModule,
     PartnerProductsModule,
-    RosskoModule,
     SuppliersModule,
     PricingModule,
     SearchModule,

@@ -47,6 +47,10 @@ export class Supplier {
   @Column({ type: 'varchar', length: 8, nullable: true })
   currency: string | null;
 
+  @ApiProperty({ example: 2, nullable: true, description: 'Extra delivery days added to this partner offers' })
+  @Column({ type: 'int', nullable: true })
+  deliveryBufferDays: number | null;
+
   @ApiProperty({ example: {}, description: 'Non-sensitive partner config' })
   @Column({ type: 'jsonb', default: () => "'{}'" })
   config: Record<string, unknown>;

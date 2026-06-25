@@ -28,6 +28,13 @@ describe('SettingsService', () => {
     expect(await service.getFxBufferPercent()).toBe(2);
   });
 
+  it('getDeliveryBufferDays defaults to 0 and reads stored value', async () => {
+    const { service } = makeService();
+    expect(await service.getDeliveryBufferDays()).toBe(0);
+    const { service: s2 } = makeService({ DELIVERY_BUFFER_DAYS: 3 });
+    expect(await s2.getDeliveryBufferDays()).toBe(3);
+  });
+
   it('update writes rows and invalidates cache', async () => {
     const { service, repo } = makeService();
     await service.update({ DEFAULT_MARKUP_PERCENT: 25 });

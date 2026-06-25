@@ -31,7 +31,7 @@
         table.innerHTML =
           '<thead><tr>' +
           '<th>Код</th><th>Название</th><th>Активен</th>' +
-          '<th>Наценка %</th><th>Валюта</th><th></th>' +
+          '<th>Наценка %</th><th>Валюта</th><th>+дней</th><th>Config (JSON)</th><th></th>' +
           '</tr></thead>';
         const tbody = document.createElement('tbody');
         suppliers.forEach((s) => {
@@ -55,6 +55,20 @@
           currencyInput.value = s.currency || '';
           currencyInput.className = 'field-currency admin-input';
 
+          const bufferInput = document.createElement('input');
+          bufferInput.type = 'number';
+          bufferInput.min = '0';
+          bufferInput.step = '1';
+          bufferInput.value = s.deliveryBufferDays != null ? s.deliveryBufferDays : '';
+          bufferInput.className = 'field-deliveryBufferDays admin-input';
+          bufferInput.style.cssText = 'width:70px;';
+
+          const configTextarea = document.createElement('textarea');
+          configTextarea.className = 'field-config';
+          configTextarea.rows = 4;
+          configTextarea.style.cssText = 'width:260px;font-family:monospace;font-size:12px;';
+          configTextarea.value = JSON.stringify(s.config ?? {}, null, 2);
+
           const saveBtn = document.createElement('button');
           saveBtn.textContent = 'Сохранить';
           saveBtn.onclick = () => saveRow(s.code, tr, saveBtn);
@@ -64,9 +78,11 @@
           const tdActive = document.createElement('td'); tdActive.appendChild(activeCheck);
           const tdMarkup = document.createElement('td'); tdMarkup.appendChild(markupInput);
           const tdCurrency = document.createElement('td'); tdCurrency.appendChild(currencyInput);
+          const tdBuffer = document.createElement('td'); tdBuffer.appendChild(bufferInput);
+          const tdConfig = document.createElement('td'); tdConfig.appendChild(configTextarea);
           const tdAction = document.createElement('td'); tdAction.appendChild(saveBtn);
 
-          tr.append(tdCode, tdName, tdActive, tdMarkup, tdCurrency, tdAction);
+          tr.append(tdCode, tdName, tdActive, tdMarkup, tdCurrency, tdBuffer, tdConfig, tdAction);
           tbody.appendChild(tr);
         });
         table.appendChild(tbody);
@@ -81,9 +97,23 @@
       const isActive = tr.querySelector('.field-isActive').checked;
       const markupVal = tr.querySelector('.field-markupPercent').value;
       const currency = tr.querySelector('.field-currency').value.trim();
-      const payload = { isActive };
+      const bufferVal = tr.querySelector('.field-deliveryBufferDays').value;
+      const configRaw = tr.querySelector('.field-config').value.trim();
+
+      let configParsed;
+      try {
+        configParsed = JSON.parse(configRaw);
+      } catch (e) {
+        showMsg('msg', 'Ошибка: config поставщика ' + code + ' содержит невалидный JSON: ' + e.message, 'err');
+        btn.disabled = false;
+        return;
+      }
+
+      const payload = { isActive, config: configParsed };
       if (markupVal !== '') payload.markupPercent = parseFloat(markupVal);
       if (currency !== '') payload.currency = currency;
+      if (bufferVal !== '') payload.deliveryBufferDays = Number(bufferVal);
+
       try {
         await api('/api/suppliers/' + encodeURIComponent(code), {
           method: 'PATCH',
