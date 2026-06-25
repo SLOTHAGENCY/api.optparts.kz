@@ -28,4 +28,8 @@ export class UpdateSupplierDto {
   @IsOptional()
   @IsObject()
   config?: Record<string, unknown>;
+
+  @ApiPropertyOptional({ example: 2, nullable: true, description: 'Extra delivery days for this partner' })
+  @IsOptional() @IsNumber() @Min(0)
+  deliveryBufferDays?: number | null;
 }

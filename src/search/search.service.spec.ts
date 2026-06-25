@@ -28,7 +28,9 @@ function makeService(connectors: any[], saveImpl?: jest.Mock) {
     applyMarkup: jest.fn(async (cost: number) => Math.round(cost * 1.2)),
   };
   const repo = { save: saveImpl ?? jest.fn(async (e: any) => e) };
-  const service = new SearchService(registry as any, pricing as any, repo as any);
+  const settings = { getDeliveryBufferDays: jest.fn(async () => 0) };
+  const suppliersService = { findAll: jest.fn(async () => []) };
+  const service = new SearchService(registry as any, pricing as any, repo as any, settings as any, suppliersService as any);
   return { service, registry, pricing, repo };
 }
 
@@ -144,5 +146,13 @@ describe('SearchService.search', () => {
     expect(exact).toHaveLength(1);
     expect(exact[0].offers).toHaveLength(2);
     expect(exact[0].offers[0].sellPrice).toBe(100); // cheapest first
+  });
+
+  it('adds delivery buffer (supplier over global) to offer deliveryDays', () => {
+    const svc: any = new SearchService({} as any, {} as any, {} as any, {} as any, {} as any);
+    // bufferByCode: rossko=+2; global=+1
+    expect(svc.withBuffer(3, 'rossko', new Map([['rossko', 2]]), 1)).toBe(5);
+    expect(svc.withBuffer(3, 'tabys', new Map([['rossko', 2]]), 1)).toBe(4); // global
+    expect(svc.withBuffer(3, 'tabys', new Map([['tabys', null]]), 1)).toBe(4); // null => global
   });
 });

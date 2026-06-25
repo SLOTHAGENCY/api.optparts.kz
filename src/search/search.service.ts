@@ -13,6 +13,8 @@ import {
 } from './dto/search-response.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { HistoryQueryDto, HistoryResponseDto } from './dto/search-history.dto';
+import { SettingsService } from '../settings/settings.service';
+import { SuppliersService } from '../suppliers/suppliers.service';
 
 const DEFAULT_SEARCH_TIMEOUT_MS = 8000;
 
@@ -35,6 +37,8 @@ export class SearchService {
     private readonly pricing: PricingService,
     @InjectRepository(SearchLog)
     private readonly searchLogRepo: Repository<SearchLog>,
+    private readonly settings: SettingsService,
+    private readonly suppliersService: SuppliersService,
   ) {}
 
   async search(
@@ -68,9 +72,15 @@ export class SearchService {
       }
     }
 
+    const supplierRows = await this.suppliersService.findAll();
+    const bufferByCode = new Map(
+      supplierRows.map((s) => [s.code, s.deliveryBufferDays]),
+    );
+    const globalBuffer = await this.settings.getDeliveryBufferDays();
+
     const normalized = await Promise.all(
       rawOffers.map(({ offer, supplierName }) =>
-        this.toNormalizedOffer(offer, supplierName),
+        this.toNormalizedOffer(offer, supplierName, bufferByCode, globalBuffer),
       ),
     );
 
@@ -113,6 +123,8 @@ export class SearchService {
   private async toNormalizedOffer(
     offer: SupplierOffer,
     supplierName: string,
+    bufferByCode: Map<string, number | null>,
+    globalBuffer: number,
   ): Promise<NormalizedOffer> {
     const sellPrice = await this.pricing.applyMarkup(
       offer.costPrice,
@@ -134,13 +146,25 @@ export class SearchService {
         supplierCode: offer.supplierCode,
         supplierName,
         sellPrice,
-        deliveryDays: offer.deliveryDays,
+        deliveryDays: this.withBuffer(offer.deliveryDays, offer.supplierCode, bufferByCode, globalBuffer),
         count: offer.count,
         multiplicity: offer.multiplicity,
         warehouseId: offer.warehouseId,
         raw: offer.raw,
       },
     };
+  }
+
+  /** deliveryDays + (supplier buffer ?? global buffer ?? 0). */
+  withBuffer(
+    days: number,
+    supplierCode: string,
+    bufferByCode: Map<string, number | null>,
+    globalBuffer: number,
+  ): number {
+    const sup = bufferByCode.get(supplierCode);
+    const buffer = sup != null ? sup : globalBuffer ?? 0;
+    return days + buffer;
   }
 
   private groupAndRank(offers: NormalizedOffer[]): {
