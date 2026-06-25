@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-export class AddSupplierApiConfig1700000000017 implements MigrationInterface {
-  name = 'AddSupplierApiConfig1700000000017';
+export class AddSupplierApiConfig1700000000018 implements MigrationInterface {
+  name = 'AddSupplierApiConfig1700000000018';
   public async up(q: QueryRunner): Promise<void> {
     await q.query(`ALTER TABLE "suppliers" ADD "timeoutMs" integer`);
     await q.query(`ALTER TABLE "suppliers" ADD "rateLimitRpm" integer`);

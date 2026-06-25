@@ -21,10 +21,14 @@ export class PartnerProductsController {
   @Roles(UserRole.MANAGER, UserRole.ADMIN)
   @Get()
   @ApiOperation({
-    summary:
-      'List the partner products analytics catalog (MANAGER/ADMIN). Not a price/search source.',
+    summary: 'Аналитический каталог товаров поставщиков (менеджер/админ)',
+    description:
+      'Возвращает справочно-аналитический каталог товаров поставщиков с постраничной выдачей и ' +
+      'фильтрами. Это витрина для анализа ассортимента (что вообще бывает у поставщиков), а НЕ ' +
+      'источник актуальных цен и наличия — для реальных цен и наличия используется живой поиск ' +
+      '(/search). Доступно только менеджеру или администратору.',
   })
-  @ApiResponse({ status: 200, description: 'Paginated catalog rows.' })
+  @ApiResponse({ status: 200, description: 'Строки каталога с постраничной выдачей.' })
   findMany(@Query() query: QueryPartnerProductsDto) {
     return this.service.findMany(query);
   }

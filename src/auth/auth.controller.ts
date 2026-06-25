@@ -42,9 +42,16 @@ export class AuthController {
   @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Register a new user account' })
-  @ApiResponse({ status: 201, description: 'Registration successful.' })
-  @ApiResponse({ status: 400, description: 'Validation error or email already in use.' })
+  @ApiOperation({
+    summary: 'Регистрация нового пользователя',
+    description:
+      'Создаёт новый аккаунт по email, паролю и имени. При успешной регистрации сразу ' +
+      'возвращает токен доступа (accessToken) — его нужно сохранить и подставлять во все ' +
+      'последующие запросы, требующие авторизации. Email должен быть уникальным: если такой ' +
+      'адрес уже занят, вернётся ошибка. Регистрироваться может любой, авторизация не требуется.',
+  })
+  @ApiResponse({ status: 201, description: 'Регистрация прошла успешно — возвращены токен и данные пользователя.' })
+  @ApiResponse({ status: 400, description: 'Ошибка в данных или email уже используется.' })
   async register(@Body() dto: RegisterDto) {
     const { accessToken, user } = await this.authService.register(dto);
     return { message: 'Registration successful.', accessToken, user };
@@ -54,9 +61,15 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Log in and receive a JWT access token' })
-  @ApiResponse({ status: 200, description: 'Login successful.' })
-  @ApiResponse({ status: 401, description: 'Invalid credentials.' })
+  @ApiOperation({
+    summary: 'Вход в систему и получение токена',
+    description:
+      'Проверяет email и пароль. Если данные верны, возвращает токен доступа (accessToken) и ' +
+      'информацию о пользователе. Токен нужно прикладывать к защищённым запросам в заголовке ' +
+      'Authorization: Bearer <токен>. Если email или пароль неверные — вернётся ошибка 401.',
+  })
+  @ApiResponse({ status: 200, description: 'Вход выполнен — возвращены токен и данные пользователя.' })
+  @ApiResponse({ status: 401, description: 'Неверный email или пароль.' })
   async login(@Body() dto: LoginDto) {
     const user = await this.usersService.findByEmail(dto.email);
     const { accessToken } = await this.authService.login(user);
@@ -67,7 +80,13 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Log out (client should discard the JWT)' })
+  @ApiOperation({
+    summary: 'Выход из системы',
+    description:
+      'Завершает сессию. Сервер не хранит токены, поэтому фактический выход — это удаление ' +
+      'токена на стороне клиента (из памяти приложения, localStorage и т.п.). Метод просто ' +
+      'подтверждает, что токен больше можно не использовать.',
+  })
   logout() {
     return { message: 'Logged out successfully. Please discard your token.' };
   }
@@ -75,7 +94,13 @@ export class AuthController {
   /** GET /auth/profile */
   @Get('profile')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get the current user profile' })
+  @ApiOperation({
+    summary: 'Получить профиль текущего пользователя',
+    description:
+      'Возвращает данные пользователя, которому принадлежит переданный токен: email, имя, ' +
+      'роль, аватар и прочие поля профиля. Используется, чтобы показать в интерфейсе, кто ' +
+      'сейчас в системе. Требует авторизации.',
+  })
   profile(@CurrentUser() user: User) {
     return { user };
   }
@@ -83,7 +108,13 @@ export class AuthController {
   /** PUT /auth/profile */
   @Put('profile')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Update current user profile (email, name)' })
+  @ApiOperation({
+    summary: 'Изменить профиль (email, имя, фамилия)',
+    description:
+      'Обновляет данные текущего пользователя. Можно прислать только те поля, которые нужно ' +
+      'поменять — остальные останутся прежними. При смене email он проверяется на уникальность, ' +
+      'но оставить свой текущий email разрешено. Требует авторизации.',
+  })
   async updateProfile(@CurrentUser() user: User, @Body() dto: UpdateProfileDto) {
     dto.currentUserId = user.id;  // ← validator reads this to allow same-user email
 
@@ -98,10 +129,16 @@ export class AuthController {
   /** POST /auth/profile/image */
   @Post('profile/image')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Upload a profile avatar image (multipart/form-data)' })
+  @ApiOperation({
+    summary: 'Загрузить аватар (фото профиля)',
+    description:
+      'Загружает изображение профиля через форму multipart/form-data (поле "image"). ' +
+      'Принимаются только файлы-картинки размером до 5 МБ. После загрузки путь к файлу ' +
+      'сохраняется в профиле, и аватар становится доступен по ссылке из ответа. Требует авторизации.',
+  })
   @ApiConsumes('multipart/form-data')
-  @ApiResponse({ status: 200, description: 'Profile image updated.' })
-  @ApiResponse({ status: 400, description: 'Only image files are allowed (max 5 MB).' })
+  @ApiResponse({ status: 200, description: 'Аватар обновлён.' })
+  @ApiResponse({ status: 400, description: 'Разрешены только изображения (максимум 5 МБ).' })
   @UseInterceptors(
     FileInterceptor('image', {
       storage: diskStorage({

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Профиль — тест</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="nav"></div>
+
+  <h1>Профиль</h1>
+  <form id="profileForm">
+    <label>Имя</label>
+    <input id="firstName" required />
+    <label>Фамилия</label>
+    <input id="lastName" required />
+    <label>Email</label>
+    <input id="email" type="email" required />
+    <label>Роли</label>
+    <input id="roles" disabled />
+    <br /><button type="submit">Сохранить</button>
+  </form>
+  <div id="profileMsg" class="msg"></div>
+
+  <div class="section-title">Адреса доставки</div>
+  <div id="addrMsg" class="msg"></div>
+  <div id="addresses"></div>
+
+  <h1 id="addrFormTitle" style="font-size:16px;margin-top:20px;">Добавить адрес</h1>
+  <form id="addressForm">
+    <input id="addrId" type="hidden" />
+    <label>Название (напр. «Дом», «Офис»)</label>
+    <input id="title" required maxlength="100" />
+    <label>Улица</label>
+    <input id="street" required maxlength="255" />
+    <label>Город</label>
+    <input id="city" required maxlength="100" />
+    <label>Индекс</label>
+    <input id="postcode" required maxlength="20" />
+    <label><input id="main" type="checkbox" /> Сделать основным</label>
+    <br />
+    <button type="submit" id="addrSubmit">Добавить</button>
+    <button type="button" id="addrCancel" style="display:none;">Отмена</button>
+  </form>
+
+  <script src="app.js"></script>
+  <script>
+    requireAuth();
+
+    // ===== Профиль =====
+    async function loadProfile() {
+      try {
+        const user = await getProfile();
+        if (!user) return;
+        firstName.value = user.firstName || '';
+        lastName.value = user.lastName || '';
+        email.value = user.email || '';
+        roles.value = (user.roles || []).join(', ');
+        setUser(user);
+        renderNav();
+        renderAdminNav(); // re-append admin links wiped by renderNav()
+      } catch (err) {
+        showMsg('profileMsg', 'Не удалось загрузить профиль: ' + err.message, 'err');
+      }
+    }
+
+    document.getElementById('profileForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      showMsg('profileMsg', 'Сохранение...', '');
+      try {
+        const data = await api('/api/auth/profile', {
+          method: 'PUT',
+          body: JSON.stringify({
+            firstName: firstName.value.trim(),
+            lastName: lastName.value.trim(),
+            email: email.value.trim(),
+          }),
+        });
+        setUser(data.user);
+        renderNav();
+        showMsg('profileMsg', 'Сохранено.', 'ok');
+      } catch (err) {
+        showMsg('profileMsg', 'Ошибка: ' + err.message, 'err');
+      }
+    });
+
+    // ===== Адреса =====
+    function addrCard(a) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      const header = document.createElement('div');
+      header.className = 'card-header';
+      const title = document.createElement('span');
+      title.className = 'card-title';
+      title.textContent = a.title;
+      header.appendChild(title);
+      if (a.main) {
+        const badge = document.createElement('span');
+        badge.className = 'badge-analog';
+        badge.textContent = 'основной';
+        header.appendChild(badge);
+      }
+      card.appendChild(header);
+
+      const body = document.createElement('div');
+      body.className = 'muted';
+      body.textContent = [a.street, a.city, a.postcode].filter(Boolean).join(', ');
+      card.appendChild(body);
+
+      const actions = document.createElement('div');
+      actions.className = 'row-actions';
+      actions.style.marginTop = '8px';
+
+      if (!a.main) {
+        const mainBtn = document.createElement('button');
+        mainBtn.textContent = 'Сделать основным';
+        mainBtn.onclick = () => setMain(a.id);
+        actions.appendChild(mainBtn);
+      }
+      const editBtn = document.createElement('button');
+      editBtn.textContent = 'Редактировать';
+      editBtn.onclick = () => startEdit(a);
+      actions.appendChild(editBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Удалить';
+      delBtn.onclick = () => removeAddr(a);
+      actions.appendChild(delBtn);
+
+      card.appendChild(actions);
+      return card;
+    }
+
+    async function loadAddresses() {
+      const box = document.getElementById('addresses');
+      box.innerHTML = '';
+      try {
+        const list = await api('/api/addresses');
+        if (!list || !list.length) {
+          box.innerHTML = '<p class="muted">Адресов пока нет.</p>';
+          return;
+        }
+        list.forEach((a) => box.appendChild(addrCard(a)));
+      } catch (err) {
+        showMsg('addrMsg', 'Не удалось загрузить адреса: ' + err.message, 'err');
+      }
+    }
+
+    async function setMain(id) {
+      showMsg('addrMsg', 'Сохранение...', '');
+      try {
+        await api('/api/addresses/' + id + '/main', { method: 'PATCH' });
+        showMsg('addrMsg', 'Основной адрес обновлён.', 'ok');
+        loadAddresses();
+      } catch (err) {
+        showMsg('addrMsg', 'Ошибка: ' + err.message, 'err');
+      }
+    }
+
+    async function removeAddr(a) {
+      if (!confirm('Удалить адрес «' + a.title + '»?')) return;
+      showMsg('addrMsg', 'Удаление...', '');
+      try {
+        await api('/api/addresses/' + a.id, { method: 'DELETE' });
+        showMsg('addrMsg', 'Адрес удалён.', 'ok');
+        if (addrId.value === a.id) resetAddrForm();
+        loadAddresses();
+      } catch (err) {
+        showMsg('addrMsg', 'Ошибка: ' + err.message, 'err');
+      }
+    }
+
+    function startEdit(a) {
+      addrId.value = a.id;
+      title.value = a.title;
+      street.value = a.street;
+      city.value = a.city;
+      postcode.value = a.postcode;
+      main.checked = !!a.main;
+      document.getElementById('addrFormTitle').textContent = 'Редактировать адрес';
+      document.getElementById('addrSubmit').textContent = 'Сохранить';
+      document.getElementById('addrCancel').style.display = '';
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    function resetAddrForm() {
+      document.getElementById('addressForm').reset();
+      addrId.value = '';
+      document.getElementById('addrFormTitle').textContent = 'Добавить адрес';
+      document.getElementById('addrSubmit').textContent = 'Добавить';
+      document.getElementById('addrCancel').style.display = 'none';
+    }
+
+    document.getElementById('addrCancel').onclick = resetAddrForm;
+
+    document.getElementById('addressForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      showMsg('addrMsg', 'Сохранение...', '');
+      const payload = {
+        title: title.value.trim(),
+        street: street.value.trim(),
+        city: city.value.trim(),
+        postcode: postcode.value.trim(),
+        main: main.checked,
+      };
+      try {
+        if (addrId.value) {
+          await api('/api/addresses/' + addrId.value, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+          });
+          showMsg('addrMsg', 'Адрес обновлён.', 'ok');
+        } else {
+          await api('/api/addresses', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          showMsg('addrMsg', 'Адрес добавлен.', 'ok');
+        }
+        resetAddrForm();
+        loadAddresses();
+      } catch (err) {
+        showMsg('addrMsg', 'Ошибка: ' + err.message, 'err');
+      }
+    });
+
+    loadProfile();
+    loadAddresses();
+  </script>
+</body>
+</html>

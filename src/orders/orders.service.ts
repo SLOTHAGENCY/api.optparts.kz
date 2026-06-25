@@ -9,7 +9,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Order, OrderStatus, OrderStatusLabel } from './entities/order.entity';
+import {
+  DeliveryType,
+  DeliveryTypeLabel,
+  Order,
+  OrderStatus,
+  OrderStatusLabel,
+} from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { SupplierOrder } from './entities/supplier-order.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -21,6 +27,8 @@ import {
 } from './cart-checkout.contract';
 import { SuppliersRegistry } from '../suppliers/suppliers.registry';
 import { PartnerProductsService } from '../partner-products/partner-products.service';
+import { AddressesService } from '../addresses/addresses.service';
+import { SettingsService } from '../settings/settings.service';
 import {
   PlaceOrderItem,
   ReturnItem,
@@ -55,6 +63,8 @@ export class OrdersService {
     private readonly partnerProducts: PartnerProductsService,
     private readonly suppliersService: SuppliersService,
     private readonly rateLimiter: RateLimiterRegistry,
+    private readonly addresses: AddressesService,
+    private readonly settings: SettingsService,
   ) {}
 
   // ---- Reads ----
@@ -87,6 +97,18 @@ export class OrdersService {
   // ---- Checkout (Spec C §4) ----
 
   async create(userId: string, dto: CreateOrderDto): Promise<any> {
+    // Resolve the delivery target. For delivery the address is mandatory and
+    // must belong to the user; for pickup no address is stored.
+    let addressId: string | null = null;
+    if (dto.deliveryType === DeliveryType.DELIVERY) {
+      if (!dto.addressId) {
+        throw new BadRequestException('addressId is required for delivery.');
+      }
+      // Throws NotFound/Forbidden if the address is missing or not the user's.
+      const address = await this.addresses.findOne(dto.addressId, userId);
+      addressId = address.id;
+    }
+
     const items = await this.cart.getCheckoutItems(userId);
     if (!items.length) {
       throw new ConflictException({ message: 'Cart is empty.', changes: [] });
@@ -112,11 +134,15 @@ export class OrdersService {
       });
     }
 
+    const isTest = (await this.settings.getOrderMode()) === 'test';
+
     // §4.3 — create Order + immutable order_item snapshots (prices from currentPrice).
     const order = this.orderRepo.create({
       userId,
-      addressId: dto.addressId ?? null,
+      deliveryType: dto.deliveryType,
+      addressId,
       status: OrderStatus.NEW,
+      isTest,
       totalAmount: items.reduce(
         (sum, i) => sum + i.currentPrice * i.quantity,
         0,
@@ -135,11 +161,13 @@ export class OrdersService {
     const subOrders: SupplierOrder[] = [];
     for (const [supplierCode, groupItems] of groups) {
       subOrders.push(
-        await this.placeSupplierOrder(saved.id, supplierCode, groupItems),
+        await this.placeSupplierOrder(saved.id, supplierCode, groupItems, isTest),
       );
     }
     saved.supplierOrders = subOrders;
-    saved.status = aggregateOrderStatus(subOrders.map((s) => s.status));
+    saved.status = isTest
+      ? OrderStatus.NEW
+      : aggregateOrderStatus(subOrders.map((s) => s.status));
     await this.orderRepo.save(saved);
 
     // §4.7 — analytics upsert + clear cart.
@@ -182,6 +210,7 @@ export class OrdersService {
     orderId: string,
     supplierCode: string,
     items: CheckoutItem[],
+    isTest = false,
   ): Promise<SupplierOrder> {
     const sub = this.supplierOrderRepo.create({
       orderId,
@@ -191,7 +220,12 @@ export class OrdersService {
       errorMessage: null,
       returnStatus: null,
       externalReturnId: null,
+      isTest,
     });
+    if (isTest) {
+      // Test mode: persist the sub-order without contacting the partner.
+      return this.supplierOrderRepo.save(sub);
+    }
     try {
       const connector = await this.suppliersRegistry.getByCode(supplierCode);
       const supplier = await this.suppliersService.findByCode(supplierCode);
@@ -380,6 +414,7 @@ export class OrdersService {
   private withLabel = (order: Order) => ({
     ...order,
     statusLabel: OrderStatusLabel[order.status],
+    deliveryTypeLabel: DeliveryTypeLabel[order.deliveryType],
   });
 
   /** Buyer view: strips costPrice from items so we never expose our margin. */

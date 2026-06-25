@@ -23,28 +23,48 @@ export class BrandsController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'List all brands (public)' })
+  @ApiOperation({
+    summary: 'Список всех брендов (общедоступно)',
+    description:
+      'Возвращает справочник всех брендов (производителей запчастей). Используется для фильтров и ' +
+      'привязки товаров к бренду. Доступно без авторизации.',
+  })
   findAll() { return this.brandsService.findAll(); }
 
   @Public()
   @Get(':id')
-  @ApiOperation({ summary: 'Get a brand by id (public)' })
+  @ApiOperation({
+    summary: 'Получить бренд по id (общедоступно)',
+    description:
+      'Возвращает данные одного бренда по его id. Если бренд не найден — вернётся ошибка 404. ' +
+      'Доступно без авторизации.',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiResponse({ status: 404, description: 'Brand not found.' })
+  @ApiResponse({ status: 404, description: 'Бренд не найден.' })
   findOne(@Param('id', ParseUUIDPipe) id: string) { return this.brandsService.findById(id); }
 
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new brand (MANAGER/ADMIN)' })
-  @ApiResponse({ status: 403, description: 'Admin/Manager only.' })
+  @ApiOperation({
+    summary: 'Создать бренд (менеджер/админ)',
+    description:
+      'Добавляет новый бренд в справочник. Доступно только менеджеру или администратору. ' +
+      'Обычному пользователю вернётся ошибка 403.',
+  })
+  @ApiResponse({ status: 403, description: 'Только для менеджера/администратора.' })
   create(@Body() dto: CreateBrandDto) { return this.brandsService.create(dto); }
 
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Put(':id')
-  @ApiOperation({ summary: 'Update a brand (MANAGER/ADMIN)' })
+  @ApiOperation({
+    summary: 'Изменить бренд (менеджер/админ)',
+    description:
+      'Обновляет данные существующего бренда (например, название) по его id. Доступно только ' +
+      'менеджеру или администратору.',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiResponse({ status: 403, description: 'Admin/Manager only.' })
+  @ApiResponse({ status: 403, description: 'Только для менеджера/администратора.' })
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateBrandDto) {
     return this.brandsService.update(id, dto);
   }
@@ -52,8 +72,13 @@ export class BrandsController {
   @Roles(UserRole.ADMIN)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a brand (ADMIN)' })
+  @ApiOperation({
+    summary: 'Удалить бренд (только админ)',
+    description:
+      'Удаляет бренд из справочника по его id. Это необратимое действие, поэтому доступно только ' +
+      'администратору. Менеджеру вернётся ошибка 403.',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiResponse({ status: 403, description: 'Admin only.' })
+  @ApiResponse({ status: 403, description: 'Только для администратора.' })
   delete(@Param('id', ParseUUIDPipe) id: string) { return this.brandsService.delete(id); }
 }

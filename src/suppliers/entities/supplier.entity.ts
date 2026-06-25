@@ -16,23 +16,23 @@ export const decimalTransformer = {
 
 @Entity('suppliers')
 export class Supplier {
-  @ApiProperty({ example: 'b3f1...uuid' })
+  @ApiProperty({ description: 'Идентификатор поставщика', example: 'b3f1...uuid' })
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ApiProperty({ example: 'rossko', description: 'Unique partner code' })
+  @ApiProperty({ description: 'Уникальный код поставщика', example: 'rossko' })
   @Column({ unique: true, length: 100 })
   code: string;
 
-  @ApiProperty({ example: 'Rossko' })
+  @ApiProperty({ description: 'Название поставщика', example: 'Rossko' })
   @Column({ length: 255 })
   name: string;
 
-  @ApiProperty({ example: true })
+  @ApiProperty({ description: 'Участвует ли поставщик в поиске', example: true })
   @Column({ default: true })
   isActive: boolean;
 
-  @ApiProperty({ example: 20, nullable: true, description: 'null => DEFAULT_MARKUP_PERCENT' })
+  @ApiProperty({ description: 'Процент наценки поставщика; null означает «использовать наценку по умолчанию»', example: 20, nullable: true })
   @Column({
     type: 'decimal',
     precision: 6,
@@ -43,11 +43,11 @@ export class Supplier {
   })
   markupPercent: number | null;
 
-  @ApiProperty({ example: 'KZT', nullable: true, description: 'ISO-4217 currency code for this supplier' })
+  @ApiProperty({ description: 'Код валюты поставщика по стандарту ISO-4217', example: 'KZT', nullable: true })
   @Column({ type: 'varchar', length: 8, nullable: true })
   currency: string | null;
 
-  @ApiProperty({ example: 2, nullable: true, description: 'Extra delivery days added to this partner offers' })
+  @ApiProperty({ description: 'Дополнительные дни, добавляемые к сроку доставки предложений этого поставщика', example: 2, nullable: true })
   @Column({ type: 'int', nullable: true })
   deliveryBufferDays: number | null;
 
@@ -63,15 +63,15 @@ export class Supplier {
   @Column({ type: 'text', nullable: true })
   secretsEnc: string | null;
 
-  @ApiProperty({ example: {}, description: 'Non-sensitive partner config' })
+  @ApiProperty({ description: 'Несекретные настройки подключения поставщика', example: {} })
   @Column({ type: 'jsonb', default: () => "'{}'" })
   config: Record<string, unknown>;
 
-  @ApiProperty({ example: '2025-06-24T10:00:00Z' })
+  @ApiProperty({ description: 'Дата создания записи', example: '2025-06-24T10:00:00Z' })
   @CreateDateColumn()
   createdAt: Date;
 
-  @ApiProperty({ example: '2025-06-24T10:00:00Z' })
+  @ApiProperty({ description: 'Дата последнего изменения записи', example: '2025-06-24T10:00:00Z' })
   @UpdateDateColumn()
   updatedAt: Date;
 }

@@ -1,0 +1,18 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - link "Поиск" [ref=e3] [cursor=pointer]:
+      - /url: index.html
+    - text: ·
+    - link "Корзина" [ref=e4] [cursor=pointer]:
+      - /url: cart.html
+    - text: ·
+    - link "Заказы" [ref=e5] [cursor=pointer]:
+      - /url: orders.html
+    - text: ·
+    - link "Профиль" [ref=e6] [cursor=pointer]:
+      - /url: profile.html
+    - text: · admin@optparts.kz ·
+    - link "Выйти" [ref=e7] [cursor=pointer]:
+      - /url: "#"
+  - heading "Поставщики" [level=1] [ref=e8]
+  - generic [ref=e9]: Загрузка...

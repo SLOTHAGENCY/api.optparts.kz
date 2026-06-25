@@ -7,6 +7,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { ApiProperty } from '@nestjs/swagger';
 import { Order } from './order.entity';
 import { SupplierOrderStatusValue } from '../../suppliers/types';
 
@@ -38,6 +39,10 @@ export class SupplierOrder {
 
   @Column({ type: 'varchar', default: 'NEW' })
   status: SupplierOrderStatusValue;
+
+  @ApiProperty({ description: 'true, если этот под-заказ создан в тестовом режиме (размещение у поставщика пропущено)', example: false })
+  @Column({ default: false })
+  isTest: boolean;
 
   @Column({ type: 'text', nullable: true, default: null })
   errorMessage: string | null;

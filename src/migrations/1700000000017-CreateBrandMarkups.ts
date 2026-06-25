@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-export class CreateBrandMarkups1700000000016 implements MigrationInterface {
-  name = 'CreateBrandMarkups1700000000016';
+export class CreateBrandMarkups1700000000017 implements MigrationInterface {
+  name = 'CreateBrandMarkups1700000000017';
   public async up(q: QueryRunner): Promise<void> {
     await q.query(`
       CREATE TABLE "brand_markups" (

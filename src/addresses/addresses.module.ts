@@ -8,5 +8,6 @@ import { AddressesController } from './addresses.controller';
   imports: [TypeOrmModule.forFeature([Address])],
   providers: [AddressesService],
   controllers: [AddressesController],
+  exports: [AddressesService],
 })
 export class AddressesModule {}

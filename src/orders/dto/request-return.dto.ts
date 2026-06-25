@@ -10,18 +10,18 @@ import {
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ReturnLineDto {
-  @ApiProperty({ description: 'Article of the returned position' })
+  @ApiProperty({ description: 'Артикул возвращаемой позиции' })
   @IsString()
   article: string;
 
-  @ApiProperty({ description: 'Quantity to return', minimum: 1 })
+  @ApiProperty({ description: 'Количество к возврату', minimum: 1 })
   @IsInt()
   @Min(1)
   quantity: number;
 }
 
 export class RequestReturnDto {
-  @ApiProperty({ type: [ReturnLineDto], description: 'Positions/quantities to return' })
+  @ApiProperty({ type: [ReturnLineDto], description: 'Список позиций и количеств для возврата' })
   @IsArray()
   @ArrayNotEmpty()
   @ValidateNested({ each: true })

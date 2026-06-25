@@ -2,6 +2,7 @@ import {
   Entity, PrimaryGeneratedColumn, Column, ManyToOne,
   OneToMany, JoinColumn, CreateDateColumn, UpdateDateColumn,
 } from 'typeorm';
+import { ApiProperty } from '@nestjs/swagger';
 import { User } from '../../users/entities/user.entity';
 import { Address } from '../../addresses/entities/address.entity';
 import { OrderItem } from './order-item.entity';
@@ -25,6 +26,16 @@ export const OrderStatusLabel: Record<OrderStatus, string> = {
   [OrderStatus.PARTIALLY_PLACED]: 'Размещён частично',
   [OrderStatus.DELIVERED]: 'Доставлено',
   [OrderStatus.CANCELLED]: 'Отменен',
+};
+
+export enum DeliveryType {
+  DELIVERY = 'delivery',
+  PICKUP = 'pickup',
+}
+
+export const DeliveryTypeLabel: Record<DeliveryType, string> = {
+  [DeliveryType.DELIVERY]: 'Доставка',
+  [DeliveryType.PICKUP]: 'Самовывоз',
 };
 
 @Entity('orders')
@@ -55,6 +66,13 @@ export class Order {
   @Column({ type: 'varchar', default: OrderStatus.NEW })
   status: OrderStatus;
 
+  @Column({ type: 'varchar', default: DeliveryType.DELIVERY })
+  deliveryType: DeliveryType;
+
+  @ApiProperty({ description: 'true, если заказ оформлен в тестовом режиме (не отправлен поставщикам)', example: false })
+  @Column({ default: false })
+  isTest: boolean;
+
   @Column({ type: 'text', nullable: true, default: null })
   managerComment: string | null;
 
@@ -72,5 +90,9 @@ export class Order {
 
   get statusLabel(): string {
     return OrderStatusLabel[this.status];
+  }
+
+  get deliveryTypeLabel(): string {
+    return DeliveryTypeLabel[this.deliveryType];
   }
 }

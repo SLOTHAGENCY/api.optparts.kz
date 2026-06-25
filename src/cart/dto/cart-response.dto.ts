@@ -1,34 +1,34 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CartItemDto {
-  @ApiProperty() id: string;
-  @ApiProperty({ example: 'rossko' }) supplierCode: string;
-  @ApiProperty({ example: 'Rossko' }) supplierName: string;
-  @ApiProperty() article: string;
-  @ApiProperty() brand: string;
-  @ApiProperty() productName: string;
-  @ApiProperty({ description: 'sellPrice at the moment of adding', example: 5200 })
+  @ApiProperty({ description: 'ID позиции в корзине' }) id: string;
+  @ApiProperty({ description: 'Код поставщика', example: 'rossko' }) supplierCode: string;
+  @ApiProperty({ description: 'Название поставщика', example: 'Rossko' }) supplierName: string;
+  @ApiProperty({ description: 'Артикул детали' }) article: string;
+  @ApiProperty({ description: 'Бренд' }) brand: string;
+  @ApiProperty({ description: 'Название товара' }) productName: string;
+  @ApiProperty({ description: 'Цена на момент добавления в корзину', example: 5200 })
   priceAtAdd: number;
-  @ApiProperty({ description: 'fresh sellPrice from live re-check', example: 5450 })
+  @ApiProperty({ description: 'Актуальная цена из повторной живой проверки', example: 5450 })
   currentPrice: number;
-  @ApiProperty({ description: 'currentPrice differs from priceAtAdd', example: true })
+  @ApiProperty({ description: 'true, если текущая цена отличается от цены при добавлении', example: true })
   priceChanged: boolean;
-  @ApiProperty({ description: 'false if partner unavailable or offer gone', example: true })
+  @ApiProperty({ description: 'false, если поставщик недоступен или предложение исчезло', example: true })
   available: boolean;
-  @ApiProperty({ example: 2 }) quantity: number;
-  @ApiProperty({ description: 'live stock count (0 when unavailable)', example: 10 })
+  @ApiProperty({ description: 'Количество в корзине', example: 2 }) quantity: number;
+  @ApiProperty({ description: 'Доступный остаток на складе (0, если нет в наличии)', example: 10 })
   maxQuantity: number;
-  @ApiProperty({ description: 'currentPrice * quantity', example: 10900 })
+  @ApiProperty({ description: 'Сумма по позиции: текущая цена × количество', example: 10900 })
   subtotal: number;
 }
 
 export class CartResponseDto {
-  @ApiProperty({ type: [CartItemDto] })
+  @ApiProperty({ description: 'Позиции в корзине', type: [CartItemDto] })
   items: CartItemDto[];
 
-  @ApiProperty({ description: 'sum of subtotals (fresh prices)', example: 10900 })
+  @ApiProperty({ description: 'Итоговая сумма корзины (по актуальным ценам)', example: 10900 })
   totalAmount: number;
 
-  @ApiProperty({ description: 'any item changed price or is unavailable', example: true })
+  @ApiProperty({ description: 'true, если хотя бы одна позиция изменила цену или стала недоступна', example: true })
   hasChanges: boolean;
 }

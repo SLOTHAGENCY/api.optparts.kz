@@ -21,10 +21,15 @@
       div.style.padding = '10px';
       div.style.margin = '12px 0';
       const created = o.createdAt ? new Date(o.createdAt).toLocaleString('ru-RU') : '';
+      let delivery = o.deliveryTypeLabel || o.deliveryType || '';
+      if (o.deliveryType === 'delivery' && o.address) {
+        delivery += ': ' + [o.address.title, o.address.street, o.address.city, o.address.postcode].filter(Boolean).join(', ');
+      }
       div.innerHTML =
         '<b>Заказ ' + (o.id || '').slice(0, 8) + '</b> · ' +
         'статус: <b>' + (o.statusLabel || o.status) + '</b> · ' +
-        'сумма: ' + money(o.totalAmount) + ' · ' + created;
+        'сумма: ' + money(o.totalAmount) + ' · ' +
+        (delivery ? 'получение: ' + delivery + ' · ' : '') + created;
 
       if (o.items && o.items.length) {
         const t = document.createElement('table');

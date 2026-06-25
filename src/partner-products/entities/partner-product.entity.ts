@@ -11,35 +11,35 @@ import { decimalTransformer } from '../../suppliers/entities/supplier.entity';
 @Entity('partner_products')
 @Unique('UQ_partner_products_offer', ['supplierCode', 'article', 'brand'])
 export class PartnerProduct {
-  @ApiProperty()
+  @ApiProperty({ description: 'Уникальный идентификатор записи' })
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Код поставщика' })
   @Column({ length: 100 })
   supplierCode: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Артикул (номер) детали' })
   @Column({ length: 100 })
   article: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Бренд (производитель)' })
   @Column({ length: 100 })
   brand: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Название товара' })
   @Column({ length: 255 })
   name: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Когда товар впервые встретился в выдаче поставщика' })
   @CreateDateColumn()
   firstSeenAt: Date;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Когда товар последний раз встречался в выдаче поставщика' })
   @Column({ type: 'timestamp', default: () => 'now()' })
   lastSeenAt: Date;
 
-  @ApiProperty({ type: Number, nullable: true })
+  @ApiProperty({ description: 'Последняя известная закупочная цена (может отсутствовать)', type: Number, nullable: true })
   @Column({
     type: 'decimal',
     precision: 12,
@@ -49,7 +49,7 @@ export class PartnerProduct {
   })
   lastKnownCostPrice: number | null;
 
-  @ApiProperty({ type: Number, nullable: true })
+  @ApiProperty({ description: 'Последняя известная цена продажи (может отсутствовать)', type: Number, nullable: true })
   @Column({
     type: 'decimal',
     precision: 12,
@@ -59,7 +59,7 @@ export class PartnerProduct {
   })
   lastKnownSellPrice: number | null;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Сколько раз этот товар заказывали' })
   @Column({ type: 'int', default: 0 })
   timesOrdered: number;
 }

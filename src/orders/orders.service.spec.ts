@@ -1,6 +1,6 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { OrdersService, aggregateOrderStatus } from './orders.service';
-import { OrderStatus } from './entities/order.entity';
+import { DeliveryType, OrderStatus } from './entities/order.entity';
 import { MockConnector } from '../suppliers/connectors/mock/mock.connector';
 
 function makeCheckoutItem(over: Partial<any> = {}) {
@@ -22,7 +22,11 @@ function makeCheckoutItem(over: Partial<any> = {}) {
   };
 }
 
-function makeDeps(items: any[], connectorByCode: Record<string, MockConnector>) {
+function makeDeps(
+  items: any[],
+  connectorByCode: Record<string, MockConnector>,
+  mode: 'test' | 'prod' = 'prod',
+) {
   const saved: any[] = [];
   const orderRepo = {
     create: jest.fn((data: any) => ({ ...data })),
@@ -52,6 +56,10 @@ function makeDeps(items: any[], connectorByCode: Record<string, MockConnector>) 
   const partnerProducts = { recordOrder: jest.fn(async () => undefined) };
   const suppliersService = { findByCode: jest.fn(async () => ({ rateLimitRpm: null })) };
   const rateLimiter = { gate: jest.fn(async (_code: any, _rpm: any, fn: () => any) => fn()) };
+  const addresses = {
+    findOne: jest.fn(async (id: string, userId: string) => ({ id, userId })),
+  };
+  const settings = { getOrderMode: jest.fn(async () => mode) };
   const service = new OrdersService(
     orderRepo as any,
     supplierOrderRepo as any,
@@ -60,8 +68,19 @@ function makeDeps(items: any[], connectorByCode: Record<string, MockConnector>) 
     partnerProducts as any,
     suppliersService as any,
     rateLimiter as any,
+    addresses as any,
+    settings as any,
   );
-  return { service, orderRepo, supplierOrderRepo, cart, registry, partnerProducts };
+  return {
+    service,
+    orderRepo,
+    supplierOrderRepo,
+    cart,
+    registry,
+    partnerProducts,
+    addresses,
+    settings,
+  };
 }
 
 describe('aggregateOrderStatus', () => {
@@ -80,7 +99,7 @@ describe('OrdersService.create', () => {
     const { service } = makeDeps([makeCheckoutItem({ available: false })], {
       mock: new MockConnector(),
     });
-    await expect(service.create('u1', {})).rejects.toBeInstanceOf(
+    await expect(service.create('u1', { deliveryType: DeliveryType.PICKUP })).rejects.toBeInstanceOf(
       ConflictException,
     );
   });
@@ -93,7 +112,7 @@ describe('OrdersService.create', () => {
     const { service, cart, partnerProducts } = makeDeps([makeCheckoutItem()], {
       mock,
     });
-    const order = await service.create('u1', {});
+    const order = await service.create('u1', { deliveryType: DeliveryType.PICKUP });
     expect(order.status).toBe(OrderStatus.PLACED);
     expect(order.supplierOrders).toHaveLength(1);
     expect(order.supplierOrders[0].externalOrderId).toBe('EXT-1');
@@ -116,7 +135,7 @@ describe('OrdersService.create', () => {
       ],
       { mock: ok, rossko: failing },
     );
-    const order = await service.create('u1', {});
+    const order = await service.create('u1', { deliveryType: DeliveryType.PICKUP });
     expect(order.status).toBe(OrderStatus.PARTIALLY_PLACED);
     const failed = order.supplierOrders.find(
       (s: any) => s.supplierCode === 'rossko',
@@ -125,19 +144,81 @@ describe('OrdersService.create', () => {
     expect(failed.errorMessage).toBeTruthy();
   });
 
+  it('test mode: does not call placeOrder; saves order+sub as NEW and isTest', async () => {
+    const mock = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const spy = jest.spyOn(mock, 'placeOrder');
+    const { service, cart, partnerProducts } = makeDeps(
+      [makeCheckoutItem()],
+      { mock },
+      'test',
+    );
+    const order = await service.create('u1', { deliveryType: DeliveryType.PICKUP });
+    expect(spy).not.toHaveBeenCalled();
+    expect(order.isTest).toBe(true);
+    expect(order.status).toBe(OrderStatus.NEW);
+    expect(order.supplierOrders).toHaveLength(1);
+    expect(order.supplierOrders[0].status).toBe('NEW');
+    expect(order.supplierOrders[0].externalOrderId).toBeNull();
+    expect(order.supplierOrders[0].isTest).toBe(true);
+    expect(partnerProducts.recordOrder).toHaveBeenCalledTimes(1);
+    expect(cart.clearCart).toHaveBeenCalledWith('u1');
+  });
+
   it('snapshots order items independent of live offers', async () => {
     const mock = new MockConnector().setOrderResult({
       externalOrderId: 'EXT-1',
       status: 'PLACED',
     });
     const { service } = makeDeps([makeCheckoutItem()], { mock });
-    const order = await service.create('u1', {});
+    const order = await service.create('u1', { deliveryType: DeliveryType.PICKUP });
     const item = order.items[0];
     expect(item.supplierCode).toBe('mock');
     expect(item.article).toBe('A1');
     expect(item.sellPrice).toBe(6000);
     expect(item.subtotal).toBe(6000);
     expect(item.productId).toBeNull();
+  });
+
+  it('requires an addressId for delivery', async () => {
+    const { service, addresses } = makeDeps([makeCheckoutItem()], {
+      mock: new MockConnector(),
+    });
+    await expect(
+      service.create('u1', { deliveryType: DeliveryType.DELIVERY }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(addresses.findOne).not.toHaveBeenCalled();
+  });
+
+  it('validates address ownership and stores it for delivery', async () => {
+    const mock = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const { service, addresses } = makeDeps([makeCheckoutItem()], { mock });
+    const order = await service.create('u1', {
+      deliveryType: DeliveryType.DELIVERY,
+      addressId: 'addr-1',
+    });
+    expect(addresses.findOne).toHaveBeenCalledWith('addr-1', 'u1');
+    expect(order.deliveryType).toBe(DeliveryType.DELIVERY);
+    expect(order.addressId).toBe('addr-1');
+  });
+
+  it('ignores address for pickup orders', async () => {
+    const mock = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const { service, addresses } = makeDeps([makeCheckoutItem()], { mock });
+    const order = await service.create('u1', {
+      deliveryType: DeliveryType.PICKUP,
+    });
+    expect(addresses.findOne).not.toHaveBeenCalled();
+    expect(order.deliveryType).toBe(DeliveryType.PICKUP);
+    expect(order.addressId).toBeNull();
   });
 });
 
@@ -170,6 +251,8 @@ describe('OrdersService manager controls', () => {
       { recordOrder: jest.fn() } as any,
       { findByCode: jest.fn(async () => ({ rateLimitRpm: null })) } as any,
       rateLimiter as any,
+      { findOne: jest.fn() } as any,
+      { getOrderMode: jest.fn(async () => 'prod') } as any,
     );
     return { service, order, orderRepo, supplierOrderRepo, rateLimiter };
   }

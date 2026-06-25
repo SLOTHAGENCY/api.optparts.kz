@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Заказы — Админ</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body>
+  <div id="nav"></div>
+  <h1>Все заказы (менеджер/админ)</h1>
+  <div id="msg" class="msg"></div>
+  <div id="orders"></div>
+
+  <script src="../app.js"></script>
+  <script>
+    requireAuth();
+
+    function itemsTable(o) {
+      if (!o.items || !o.items.length) return null;
+      const t = document.createElement('table');
+      t.innerHTML = '<thead><tr><th>Бренд</th><th>Название</th><th>Поставщик</th><th>Цена</th><th>Кол-во</th><th>Сумма</th></tr></thead>';
+      const tb = document.createElement('tbody');
+      o.items.forEach((i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + (i.brand || '') + '</td><td>' + (i.productName || '') + '</td>' +
+          '<td>' + (i.supplierCode || '') + '</td><td>' + money(i.sellPrice) + '</td>' +
+          '<td>' + i.quantity + '</td><td>' + money(i.subtotal) + '</td>';
+        tb.appendChild(tr);
+      });
+      t.appendChild(tb);
+      return t;
+    }
+
+    function suppliersTable(o) {
+      if (!o.supplierOrders || !o.supplierOrders.length) return null;
+      const wrap = document.createElement('div');
+      const h = document.createElement('div');
+      h.className = 'section-title';
+      h.textContent = 'Размещение у партнёров';
+      wrap.appendChild(h);
+      const t = document.createElement('table');
+      t.innerHTML = '<thead><tr><th>Поставщик</th><th>Статус</th><th>ID у партнёра</th><th>Возврат</th><th>Ошибка</th></tr></thead>';
+      const tb = document.createElement('tbody');
+      o.supplierOrders.forEach((s) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + (s.supplierCode || '') + '</td><td>' + (s.status || '') + '</td>' +
+          '<td>' + (s.externalOrderId || '—') + '</td><td>' + (s.returnStatus || '—') + '</td>' +
+          '<td class="gone">' + (s.errorMessage || '') + '</td>';
+        tb.appendChild(tr);
+      });
+      t.appendChild(tb);
+      wrap.appendChild(t);
+      return wrap;
+    }
+
+    // Manager comment editor: existing comment + textarea (PUT) + delete (DELETE).
+    function commentBlock(o) {
+      const wrap = document.createElement('div');
+      wrap.style.marginTop = '10px';
+      const h = document.createElement('div');
+      h.className = 'section-title';
+      h.textContent = 'Комментарий менеджера';
+      wrap.appendChild(h);
+
+      const cmsg = document.createElement('div');
+      cmsg.className = 'msg';
+
+      const ta = document.createElement('textarea');
+      ta.value = o.managerComment || '';
+      ta.maxLength = 1000;
+      ta.placeholder = 'Внутренний комментарий к заказу (макс. 1000)';
+      ta.style.cssText = 'width:100%;max-width:560px;min-height:60px;display:block;padding:6px 8px;';
+      wrap.appendChild(ta);
+
+      const actions = document.createElement('div');
+      actions.className = 'row-actions';
+      actions.style.marginTop = '6px';
+
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = 'Сохранить комментарий';
+      saveBtn.onclick = async () => {
+        const text = ta.value.trim();
+        if (!text) { setLocal(cmsg, 'Комментарий пустой. Используйте «Удалить».', 'err'); return; }
+        saveBtn.disabled = true;
+        try {
+          await api('/api/orders/' + o.id + '/comment', { method: 'PUT', body: JSON.stringify({ comment: text }) });
+          o.managerComment = text;
+          setLocal(cmsg, 'Сохранено.', 'ok');
+        } catch (err) {
+          setLocal(cmsg, 'Ошибка: ' + err.message, 'err');
+        } finally {
+          saveBtn.disabled = false;
+        }
+      };
+      actions.appendChild(saveBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Удалить';
+      delBtn.onclick = async () => {
+        if (!confirm('Удалить комментарий менеджера?')) return;
+        delBtn.disabled = true;
+        try {
+          await api('/api/orders/' + o.id + '/comment', { method: 'DELETE' });
+          o.managerComment = null;
+          ta.value = '';
+          setLocal(cmsg, 'Комментарий удалён.', 'ok');
+        } catch (err) {
+          setLocal(cmsg, 'Ошибка: ' + err.message, 'err');
+        } finally {
+          delBtn.disabled = false;
+        }
+      };
+      actions.appendChild(delBtn);
+
+      wrap.appendChild(actions);
+      wrap.appendChild(cmsg);
+      return wrap;
+    }
+
+    function setLocal(el, text, kind) {
+      el.textContent = text || '';
+      el.className = 'msg ' + (kind || '');
+    }
+
+    function orderBlock(o) {
+      const div = document.createElement('div');
+      div.style.cssText = 'border:1px solid #ddd;padding:10px;margin:12px 0;';
+      const created = o.createdAt ? new Date(o.createdAt).toLocaleString('ru-RU') : '';
+      let delivery = o.deliveryTypeLabel || o.deliveryType || '';
+      if (o.deliveryType === 'delivery' && o.address) {
+        delivery += ': ' + [o.address.title, o.address.street, o.address.city, o.address.postcode].filter(Boolean).join(', ');
+      }
+      div.innerHTML =
+        '<b>Заказ ' + (o.id || '').slice(0, 8) + '</b> · ' +
+        'клиент: ' + (o.userId || '').slice(0, 8) + ' · ' +
+        'статус: <b>' + (o.statusLabel || o.status) + '</b> · ' +
+        'сумма: ' + money(o.totalAmount) + ' · ' +
+        (delivery ? 'получение: ' + delivery + ' · ' : '') + created;
+
+      const it = itemsTable(o);
+      if (it) div.appendChild(it);
+      const st = suppliersTable(o);
+      if (st) div.appendChild(st);
+      div.appendChild(commentBlock(o));
+      return div;
+    }
+
+    (async function load() {
+      showMsg('msg', 'Загрузка...', '');
+      try {
+        const orders = await api('/api/orders/all');
+        const wrap = document.getElementById('orders');
+        if (!orders.length) { showMsg('msg', 'Заказов пока нет.', ''); return; }
+        showMsg('msg', '', '');
+        orders.forEach((o) => wrap.appendChild(orderBlock(o)));
+      } catch (err) {
+        if (err.status === 403) {
+          showMsg('msg', 'Доступно только менеджеру или администратору.', 'err');
+        } else {
+          showMsg('msg', 'Ошибка: ' + err.message, 'err');
+        }
+      }
+    })();
+  </script>
+</body>
+</html>

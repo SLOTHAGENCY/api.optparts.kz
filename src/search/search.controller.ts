@@ -32,14 +32,22 @@ export class SearchController {
   @UseGuards(OptionalJwtAuthGuard)
   @Get()
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Live multi-supplier search by article (+ optional brand)' })
-  @ApiQuery({ name: 'article', required: true, example: '0451103316' })
-  @ApiQuery({ name: 'brand', required: false, example: 'BOSCH' })
   @ApiQuery({ name: 'priceMin', required: false, example: 1000 })
   @ApiQuery({ name: 'priceMax', required: false, example: 9000 })
   @ApiQuery({ name: 'inStock', required: false, example: true })
   @ApiQuery({ name: 'maxDeliveryDays', required: false, example: 5 })
   @ApiQuery({ name: 'suppliers', required: false, example: 'rossko,tabys' })
+  @ApiOperation({
+    summary: 'Живой поиск запчасти по артикулу у всех поставщиков',
+    description:
+      'Главный поиск системы. По номеру детали (артикулу) и, по желанию, бренду в реальном ' +
+      'времени опрашивает всех подключённых поставщиков и собирает их предложения в один список: ' +
+      'цена, наличие, срок поставки. Цены уже пересчитаны с учётом наценки и курса валют. ' +
+      'Бренд можно не указывать — тогда вернутся варианты от разных производителей. Авторизация ' +
+      'необязательна, но если пользователь вошёл, запрос сохраняется в историю поиска.',
+  })
+  @ApiQuery({ name: 'article', required: true, example: '0451103316', description: 'Артикул (номер) детали — обязательно' })
+  @ApiQuery({ name: 'brand', required: false, example: 'BOSCH', description: 'Бренд (производитель) — необязательно, для уточнения поиска' })
   @ApiOkResponse({ type: SearchResponseDto })
   async search(
     @Query('article') article: string,
@@ -61,7 +69,11 @@ export class SearchController {
   @Get('history')
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Search history — own records; MANAGER/ADMIN see all (paginated)',
+    summary: 'История поиска (с постраничной выдачей)',
+    description:
+      'Возвращает историю поисковых запросов. Обычный пользователь видит только свои запросы, а ' +
+      'менеджер и администратор — запросы всех пользователей. Результат выдаётся постранично. ' +
+      'Удобно для анализа спроса и повторного поиска ранее искавшихся деталей. Требует авторизации.',
   })
   @ApiOkResponse({ type: HistoryResponseDto })
   history(
