@@ -130,4 +130,19 @@ describe('SearchService.search', () => {
     await new Promise((r) => setImmediate(r));
     expect(failingSave).toHaveBeenCalled();
   });
+
+  it('merges same article+brand of different casing into one group', () => {
+    const { service } = makeService([]);
+    const svc: any = service;
+    const offers = [
+      { article: '0451103316', brand: 'BOSCH', name: 'Filter', isAnalog: false,
+        dto: { sellPrice: 200, deliveryDays: 1, count: 5 } },
+      { article: '0451103316', brand: 'Bosch', name: 'Filter', isAnalog: false,
+        dto: { sellPrice: 100, deliveryDays: 2, count: 9 } },
+    ];
+    const { exact } = svc.groupAndRank(offers);
+    expect(exact).toHaveLength(1);
+    expect(exact[0].offers).toHaveLength(2);
+    expect(exact[0].offers[0].sellPrice).toBe(100); // cheapest first
+  });
 });

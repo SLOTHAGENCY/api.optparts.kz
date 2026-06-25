@@ -149,7 +149,7 @@ export class SearchService {
   } {
     const groups = new Map<string, RankedGroup>();
     for (const offer of offers) {
-      const key = `${offer.article}|${offer.brand}`;
+      const key = `${offer.article.trim().toUpperCase()}|${offer.brand.trim().toUpperCase()}`;
       let group = groups.get(key);
       if (!group) {
         group = {
