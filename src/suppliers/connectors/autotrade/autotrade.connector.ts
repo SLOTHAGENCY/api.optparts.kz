@@ -67,7 +67,7 @@ export class AutotradeConnector implements SupplierConnector {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
       },
-      timeout: 15000,
+      timeout: Number(c.TIMEOUT_MS) || 15000,
     });
     return res.data;
   }

@@ -48,7 +48,7 @@ export class TabysConnector implements SupplierConnector {
   private http(c: Record<string, string>): AxiosInstance {
     return axios.create({
       baseURL: c.API_URL || 'https://api.tabys.parts',
-      timeout: 15000,
+      timeout: Number(c.TIMEOUT_MS) || 15000,
       headers: {
         'X-External-Api-Key': c.API_KEY || '',
         'Content-Type': 'application/json',

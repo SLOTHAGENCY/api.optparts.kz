@@ -1,30 +1,35 @@
 import { resolveConfig, hasKeys } from './connector-config.util';
 
-function svc(config: Record<string, unknown> | null) {
-  return { findByCode: async () => (config === null ? null : { config }) };
+function svc(supplier: any) {
+  return {
+    findByCode: jest.fn(async () => supplier),
+    getSecrets: jest.fn(async () => supplier?.secrets ?? {}),
+  } as any;
 }
 
 describe('resolveConfig', () => {
-  const envMap = { KEY1: 'ROSSKO_KEY1', KEY2: 'ROSSKO_KEY2' };
+  const OLD = process.env.TABYS_API_KEY;
+  afterAll(() => { process.env.TABYS_API_KEY = OLD; });
 
-  afterEach(() => { delete process.env.ROSSKO_KEY1; delete process.env.ROSSKO_KEY2; });
-
-  it('prefers config over env', async () => {
-    process.env.ROSSKO_KEY1 = 'envk1';
-    const r = await resolveConfig(svc({ KEY1: 'cfgk1' }) as any, 'rossko', envMap);
-    expect(r.KEY1).toBe('cfgk1');
+  it('priority secrets > config > env', async () => {
+    process.env.TABYS_API_KEY = 'from-env';
+    const s = svc({ config: { API_KEY: 'from-config' }, secrets: { API_KEY: 'from-secret' }, timeoutMs: null });
+    const out = await resolveConfig(s, 'tabys', { API_KEY: 'TABYS_API_KEY' });
+    expect(out.API_KEY).toBe('from-secret');
   });
 
-  it('falls back to env when config missing/empty', async () => {
-    process.env.ROSSKO_KEY2 = 'envk2';
-    const r = await resolveConfig(svc({ KEY1: 'cfgk1', KEY2: '  ' }) as any, 'rossko', envMap);
-    expect(r.KEY1).toBe('cfgk1');
-    expect(r.KEY2).toBe('envk2');
+  it('falls back to env when neither secret nor config set', async () => {
+    process.env.TABYS_API_KEY = 'from-env';
+    const s = svc({ config: {}, secrets: {}, timeoutMs: null });
+    const out = await resolveConfig(s, 'tabys', { API_KEY: 'TABYS_API_KEY' });
+    expect(out.API_KEY).toBe('from-env');
   });
 
-  it('empty when neither config nor env', async () => {
-    const r = await resolveConfig(svc(null) as any, 'rossko', envMap);
-    expect(r.KEY1).toBe('');
+  it('exposes TIMEOUT_MS from supplier, default 15000', async () => {
+    const s1 = svc({ config: {}, secrets: {}, timeoutMs: 3000 });
+    expect((await resolveConfig(s1, 'tabys', {})).TIMEOUT_MS).toBe('3000');
+    const s2 = svc({ config: {}, secrets: {}, timeoutMs: null });
+    expect((await resolveConfig(s2, 'tabys', {})).TIMEOUT_MS).toBe('15000');
   });
 });
 

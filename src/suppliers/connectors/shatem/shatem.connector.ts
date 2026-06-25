@@ -56,7 +56,7 @@ export class ShateMConnector implements SupplierConnector {
   private client(c: Record<string, string>): AxiosInstance {
     return axios.create({
       baseURL: c.API_URL || 'https://api.shate-m.kz',
-      timeout: 15000,
+      timeout: Number(c.TIMEOUT_MS) || 15000,
     });
   }
 
