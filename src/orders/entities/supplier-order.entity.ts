@@ -40,7 +40,7 @@ export class SupplierOrder {
   @Column({ type: 'varchar', default: 'NEW' })
   status: SupplierOrderStatusValue;
 
-  @ApiProperty({ description: 'True when this sub-order was created in test mode (placeOrder skipped).', example: false })
+  @ApiProperty({ description: 'true, если этот под-заказ создан в тестовом режиме (размещение у поставщика пропущено)', example: false })
   @Column({ default: false })
   isTest: boolean;
 

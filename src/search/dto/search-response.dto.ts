@@ -1,33 +1,34 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class OfferDto {
-  @ApiProperty({ description: 'Opaque deterministic offer id (base64url)' })
+  @ApiProperty({ description: 'Уникальный идентификатор предложения (служебный код, base64url)' })
   offerId: string;
 
-  @ApiProperty({ example: 'rossko' })
+  @ApiProperty({ description: 'Код поставщика', example: 'rossko' })
   supplierCode: string;
 
-  @ApiProperty({ example: 'Rossko' })
+  @ApiProperty({ description: 'Название поставщика', example: 'Rossko' })
   supplierName: string;
 
-  @ApiProperty({ example: 6240, description: 'Sell price (markup applied). costPrice is never exposed.' })
+  @ApiProperty({ description: 'Цена продажи (уже с наценкой). Закупочная цена клиенту никогда не показывается.', example: 6240 })
   sellPrice: number;
 
-  @ApiProperty({ example: 3 })
+  @ApiProperty({ description: 'Срок поставки в днях', example: 3 })
   deliveryDays: number;
 
-  @ApiProperty({ example: 10 })
+  @ApiProperty({ description: 'Количество в наличии', example: 10 })
   count: number;
 
-  @ApiProperty({ example: 1 })
+  @ApiProperty({ description: 'Кратность заказа (товар заказывается партиями по N штук)', example: 1 })
   multiplicity: number;
 
-  @ApiProperty({ example: 's1' })
+  @ApiProperty({ description: 'Идентификатор склада поставщика', example: 's1' })
   warehouseId: string;
 
   @ApiProperty({
     description:
-      'Opaque supplier payload. The frontend MUST return this offer (with offerId and raw) verbatim when adding it to the cart (Spec B).',
+      'Служебные данные предложения от поставщика. Фронтенд ОБЯЗАН вернуть это предложение ' +
+      '(вместе с offerId и raw) без изменений при добавлении товара в корзину.',
     type: 'object',
     additionalProperties: true,
   })
@@ -35,34 +36,34 @@ export class OfferDto {
 }
 
 export class SearchGroupDto {
-  @ApiProperty({ example: '0451103316' })
+  @ApiProperty({ description: 'Артикул детали', example: '0451103316' })
   article: string;
 
-  @ApiProperty({ example: 'BOSCH' })
+  @ApiProperty({ description: 'Бренд (производитель)', example: 'BOSCH' })
   brand: string;
 
-  @ApiProperty({ example: 'Oil Filter' })
+  @ApiProperty({ description: 'Название товара', example: 'Oil Filter' })
   name: string;
 
-  @ApiProperty({ type: [OfferDto] })
+  @ApiProperty({ description: 'Предложения от поставщиков по этому товару', type: [OfferDto] })
   offers: OfferDto[];
 }
 
 export class SearchQueryEchoDto {
-  @ApiProperty({ example: '0451103316' })
+  @ApiProperty({ description: 'Артикул, по которому искали', example: '0451103316' })
   article: string;
 
-  @ApiProperty({ example: 'BOSCH', nullable: true })
+  @ApiProperty({ description: 'Бренд, по которому искали (если был указан)', example: 'BOSCH', nullable: true })
   brand: string | null;
 }
 
 export class SearchResponseDto {
-  @ApiProperty({ type: SearchQueryEchoDto })
+  @ApiProperty({ description: 'Повтор поискового запроса (что именно искали)', type: SearchQueryEchoDto })
   query: SearchQueryEchoDto;
 
-  @ApiProperty({ type: [SearchGroupDto], description: 'Exact matches (isAnalog=false)' })
+  @ApiProperty({ description: 'Точные совпадения по артикулу', type: [SearchGroupDto] })
   exact: SearchGroupDto[];
 
-  @ApiProperty({ type: [SearchGroupDto], description: 'Analog substitutes (isAnalog=true)' })
+  @ApiProperty({ description: 'Аналоги (заменители, подходящие вместо искомой детали)', type: [SearchGroupDto] })
   analogs: SearchGroupDto[];
 }

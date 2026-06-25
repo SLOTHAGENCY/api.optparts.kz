@@ -69,7 +69,7 @@ export class Order {
   @Column({ type: 'varchar', default: DeliveryType.DELIVERY })
   deliveryType: DeliveryType;
 
-  @ApiProperty({ description: 'True when the order was placed in test mode (not sent to suppliers).', example: false })
+  @ApiProperty({ description: 'true, если заказ оформлен в тестовом режиме (не отправлен поставщикам)', example: false })
   @Column({ default: false })
   isTest: boolean;
 

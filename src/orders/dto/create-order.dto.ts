@@ -9,13 +9,13 @@ import { DeliveryType } from '../entities/order.entity';
 export class CreateOrderDto {
   @ApiProperty({
     enum: DeliveryType,
-    description: 'Delivery method: home delivery or self pickup',
+    description: 'Способ получения: доставка курьером (delivery) или самовывоз (pickup)',
   })
   @IsEnum(DeliveryType)
   deliveryType: DeliveryType;
 
   @ApiPropertyOptional({
-    description: 'Delivery address id — required when deliveryType=delivery',
+    description: 'ID адреса доставки — обязателен, когда выбрана доставка (deliveryType=delivery); при самовывозе не нужен',
     format: 'uuid',
   })
   // Validated only for delivery: then it must be a UUID (and present).
