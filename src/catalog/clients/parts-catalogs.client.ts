@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { RateLimiterRegistry } from '../../suppliers/rate-limiter.registry';
 import { resolveCatalogConfig } from './catalog-config.util';
 import { CatalogHttpClient, CatalogRequest, CatalogResponse } from './catalog-http.client';
@@ -10,7 +10,7 @@ export class PartsCatalogsClient {
 
   constructor(
     private readonly rateLimiter: RateLimiterRegistry,
-    http?: CatalogHttpClient,
+    @Optional() http?: CatalogHttpClient,
   ) {
     const cfg = resolveCatalogConfig('partscatalogs');
     this.rpm = cfg.rpm;

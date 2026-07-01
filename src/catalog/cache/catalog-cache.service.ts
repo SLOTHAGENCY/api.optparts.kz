@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
@@ -16,7 +16,7 @@ export class CatalogCacheService {
   constructor(
     @InjectRepository(CatalogCache)
     private readonly repo: Repository<CatalogCache>,
-    private readonly clock: () => number = () => Date.now(),
+    @Optional() private readonly clock: () => number = () => Date.now(),
   ) {}
 
   async getOrFetch<T>(
