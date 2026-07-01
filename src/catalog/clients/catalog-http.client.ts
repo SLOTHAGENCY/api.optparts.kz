@@ -44,6 +44,12 @@ export class CatalogHttpClient {
         baseURL: this.cfg.baseUrl,
         url: req.path,
         params,
+        // PartsIndex expects PHP-style bracket keys (params[120], car[generationId]);
+        // keep the key unencoded, encode only the value.
+        paramsSerializer: (p: Record<string, unknown>) =>
+          Object.entries(p)
+            .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
+            .join('&'),
         timeout: this.cfg.timeoutMs,
         headers: {
           Authorization: this.cfg.apiKey,
