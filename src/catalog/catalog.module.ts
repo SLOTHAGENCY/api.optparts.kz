@@ -8,13 +8,15 @@ import { RateLimiterRegistry } from '../suppliers/rate-limiter.registry';
 import { PartsIndexService } from './services/parts-index.service';
 import { ProductCardService } from './services/product-card.service';
 import { PartsCatalogService } from './services/parts-catalog.service';
+import { OemCatalogService } from './services/oem-catalog.service';
 import { PartsController } from './controllers/parts.controller';
 import { CatalogController } from './controllers/catalog.controller';
+import { OemController } from './controllers/oem.controller';
 import { SearchModule } from '../search/search.module';
 
 @Module({
   imports: [TypeOrmModule.forFeature([CatalogCache]), SearchModule],
-  controllers: [PartsController, CatalogController],
+  controllers: [PartsController, CatalogController, OemController],
   providers: [
     RateLimiterRegistry,
     PartsIndexClient,
@@ -23,6 +25,7 @@ import { SearchModule } from '../search/search.module';
     PartsIndexService,
     ProductCardService,
     PartsCatalogService,
+    OemCatalogService,
   ],
   exports: [
     PartsIndexClient,
@@ -30,6 +33,7 @@ import { SearchModule } from '../search/search.module';
     CatalogCacheService,
     PartsIndexService,
     PartsCatalogService,
+    OemCatalogService,
   ],
 })
 export class CatalogModule {}
