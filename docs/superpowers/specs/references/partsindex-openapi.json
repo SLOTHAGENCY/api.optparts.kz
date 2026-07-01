@@ -1,0 +1,2937 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "description": "API PartsIndex предоставляет всеобъемлющий доступ к данным об автозапчастях. Он включает в себя подробную базу данных с изображениями автозапчастей, информацию об оригинальных и неоригинальных деталях, названиях, размерах и других характеристиках. Также предоставляет доступ к базе аналогов и информацию о применимости деталей к конкретным маркам автомобилей. API поддерживает REST для простой интеграции и использования, а также обеспечивает регулярные обновления данных и поддержку.",
+    "version": "1.2.0",
+    "title": "Parts Index",
+    "contact": {
+      "email": "support@tradesoft.pro"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.parts-index.com"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Brands"
+    },
+    {
+      "name": "Entities"
+    },
+    {
+      "name": "Relations"
+    },
+    {
+      "name": "Cars By Part"
+    },
+    {
+      "name": "Catalogs"
+    },
+    {
+      "name": "Cars"
+    },
+    {
+      "name": "Parts By VIN"
+    }
+  ],
+  "security": [],
+  "paths": {
+    "/v1/brands/by-part-code": {
+      "get": {
+        "tags": [
+          "Brands"
+        ],
+        "summary": "Получить список брендов по артикулу (Информация о детали)",
+        "description": "Запрос поможет вам определить какие бренды выпускают или ранее выпускали указанный вами артикул.<br>\nДавайте рассмотрим несколько примеров использования:<br>\n1. Вы хотите получить информацию о детали, но не уверены или не знаете точное название бренда.<br>\n2. Вы хотите использовать информацию о доступных брендах для вывода ее у себя на сайте. Например, в виде подсказки для пользователя.<br>\n3. Сверить список брендов, полученных по артикулу из других источников с базой PartsIndex и отфильтровать подозрительные (те, которых нет в базе).\n",
+        "operationId": "brandsByPartCode",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "info"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/code"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/BrandList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/brands/parse": {
+      "get": {
+        "tags": [
+          "Brands"
+        ],
+        "summary": "Получить информацию о бренде (Информация о детали)",
+        "operationId": "brandsByQuery",
+        "description": "Запрос поможет вам получить информацию об определенном бренде. Вы можете отправить название бренда из вашей базы, чтобы получить его точное название а также список доступных синонимов.<br>\nДавайте рассмотрим несколько примеров использования:<br>\n1. Вы хотите получить информацию о детали, но не уверены или не знаете точное название бренда.<br>\n2. Вы хотите навести порядок в собственной базе брендов.<br>\n3. Вы хотите улучшить качество вашего проекта, предоставляя покупателям информацию без дублей.<br>\nВместо того чтобы тратить время на поиск синонимов названий брендов, вы можете просто использовать данный метод и получать готовый список альтернативных вариантов.\n",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "info"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/queryBrandParse"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ParsedBrandList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/car/brands": {
+      "get": {
+        "tags": [
+          "Cars"
+        ],
+        "summary": "Получить список марок автомобилей (Каталог автотоваров)",
+        "operationId": "carBrands",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "car"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/queryOptional"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CarBrandList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/car/brands/{brandId}/models": {
+      "get": {
+        "tags": [
+          "Cars"
+        ],
+        "summary": "Получить список моделей автомобилей (Каталог автотоваров)",
+        "operationId": "carModels",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "car"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/brandIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CarModelList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/car/brands/{brandId}/models/{modelId}/generations": {
+      "get": {
+        "tags": [
+          "Cars"
+        ],
+        "summary": "Получить список поколений автомобилей (Каталог автотоваров)",
+        "operationId": "carGenerations",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "car"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/brandIdPath"
+          },
+          {
+            "$ref": "#/components/parameters/modelIdPath"
+          },
+          {
+            "$ref": "#/components/parameters/language"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/GenerationList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/car/brands/{brandId}/models/{modelId}/generations/{generationId}/engines": {
+      "get": {
+        "tags": [
+          "Cars"
+        ],
+        "summary": "Получить список двигателей автомобилей (Каталог автотоваров)",
+        "operationId": "carEngines",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "car"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/brandIdPath"
+          },
+          {
+            "$ref": "#/components/parameters/modelIdPath"
+          },
+          {
+            "$ref": "#/components/parameters/generationIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/EngineList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/cars": {
+      "get": {
+        "tags": [
+          "Cars By Part"
+        ],
+        "summary": "Получить список автомобилей по артикулу и бренду детали (Информация о детали)",
+        "operationId": "cars",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "old-apply"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/codeParam"
+          },
+          {
+            "$ref": "#/components/parameters/brandParam"
+          },
+          {
+            "$ref": "#/components/parameters/language"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CarApplyList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/catalogs": {
+      "get": {
+        "tags": [
+          "Catalogs"
+        ],
+        "summary": "Получить список каталогов (Каталог автотоваров)",
+        "operationId": "catalogs",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/language"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CatalogList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/catalogs/{catalogId}/entities": {
+      "get": {
+        "tags": [
+          "Catalogs"
+        ],
+        "summary": "Получить список деталей каталога (Каталог автотоваров)",
+        "operationId": "catalogEntities",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "catalogs",
+              "catalog.*"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/catalogId"
+          },
+          {
+            "$ref": "#/components/parameters/groupId"
+          },
+          {
+            "$ref": "#/components/parameters/params"
+          },
+          {
+            "$ref": "#/components/parameters/carGenerationId"
+          },
+          {
+            "$ref": "#/components/parameters/carEngineId"
+          },
+          {
+            "$ref": "#/components/parameters/language"
+          },
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/limit"
+          },
+          {
+            "$ref": "#/components/parameters/queryOptional"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CatalogEntityList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/catalogs/{catalogId}/entities/{id}": {
+      "get": {
+        "tags": [
+          "Catalogs"
+        ],
+        "summary": "Получить деталь каталога по ID (Каталог автотоваров)",
+        "operationId": "catalogEntityById",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "catalogs",
+              "catalog.*"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/catalogId"
+          },
+          {
+            "$ref": "#/components/parameters/entityId"
+          },
+          {
+            "$ref": "#/components/parameters/language"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CatalogEntity"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/catalogs/{catalogId}/groups": {
+      "get": {
+        "tags": [
+          "Catalogs"
+        ],
+        "summary": "Получить список групп каталога (Каталог автотоваров)",
+        "operationId": "catalogGroups",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "catalogs",
+              "catalog.*"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/catalogId"
+          },
+          {
+            "$ref": "#/components/parameters/language"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/GroupTree"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/catalogs/{catalogId}/params": {
+      "get": {
+        "tags": [
+          "Catalogs"
+        ],
+        "summary": "Получить параметры деталей каталога (Каталог автотоваров)",
+        "operationId": "catalogParams",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "catalogs",
+              "catalog.*"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/catalogId"
+          },
+          {
+            "$ref": "#/components/parameters/groupId"
+          },
+          {
+            "$ref": "#/components/parameters/params"
+          },
+          {
+            "$ref": "#/components/parameters/carGenerationId"
+          },
+          {
+            "$ref": "#/components/parameters/carEngineId"
+          },
+          {
+            "$ref": "#/components/parameters/language"
+          },
+          {
+            "$ref": "#/components/parameters/queryOptional"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ParamsList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/catalogs/{catalogId}/suggest": {
+      "get": {
+        "tags": [
+          "Catalogs",
+          "Suggest"
+        ],
+        "summary": "Подсказка для деталей каталога (Каталог автотоваров)",
+        "operationId": "catalogSuggests",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "catalogs",
+              "catalog.*"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/catalogId"
+          },
+          {
+            "$ref": "#/components/parameters/groupId"
+          },
+          {
+            "$ref": "#/components/parameters/querySuggest"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CatalogSuggestItemList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/entities": {
+      "get": {
+        "tags": [
+          "Entities"
+        ],
+        "summary": "Получить информацию о детали по артикулу и бренду (Информация о детали)",
+        "operationId": "entities",
+        "description": "<p>Один из самых популярных запросов, который предоставляет подробную информацию о различных деталях. После подключения сервиса вы сможете заполнять незаполненные поля карточек товаров, такие как штрих-код производителя, название детали, размеры детали, изображения детали, вес детали и другие характеристики.</p> <p>Сервис избавит вас от необходимости поиска и загрузки тяжелых баз данных в программу.<br> Мы постоянно обновляем базу данных, чтобы быть уверенными в том, что вы получаете самую свежую и полезную информацию.</p>\n",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "info"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/code"
+          },
+          {
+            "$ref": "#/components/parameters/brandOptional"
+          },
+          {
+            "$ref": "#/components/parameters/language"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/EntityList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/parts-by-vin/cars": {
+      "get": {
+        "tags": [
+          "Parts By VIN"
+        ],
+        "summary": "Получить автомобили по VIN коду (Детали по VIN)",
+        "description": "Search for cars using either VIN code or frame number.\n",
+        "operationId": "partsByVinCars",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "parts-by-vin.cars"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/vinOrFrameQueryOptional"
+          },
+          {
+            "$ref": "#/components/parameters/language"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PartsByVinCars"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/parts-by-vin/cars/{carId}/results": {
+      "get": {
+        "tags": [
+          "Parts By VIN"
+        ],
+        "summary": "Получить все детали по ID автомобиля (Детали по VIN)",
+        "operationId": "partsByVinResults",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "parts-by-vin.results"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/carId"
+          },
+          {
+            "$ref": "#/components/parameters/timeout"
+          },
+          {
+            "$ref": "#/components/parameters/language"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PartsByVinCarResults"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    },
+    "/v1/relations": {
+      "get": {
+        "tags": [
+          "Relations"
+        ],
+        "summary": "Получить список связанных деталей (Информация о детали)",
+        "description": "<p>Запрос поможет вам получить информацию об аналогах детали.<br>  Алгоритм прост: отправляете в сервис ID детали из базы PartsIndex или пару Артикул + Бренд и получаете аналоги.</p>  <p>Поиск аналогов осуществляется по сумме всех, указанных в запросе, параметров.<br>  Все параметры соединяются через \"and\".</p>\n",
+        "operationId": "relations",
+        "security": [
+          {
+            "ApiKeyAuth": [
+              "access",
+              "relations"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/partIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/codeParam"
+          },
+          {
+            "$ref": "#/components/parameters/brandParam"
+          },
+          {
+            "$ref": "#/components/parameters/typesQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/EntityRelationList"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          },
+          "default": {
+            "$ref": "#/components/responses/default"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "headers": {
+      "X-Message": {
+        "description": "Hint returned when dataset is empty",
+        "schema": {
+          "type": "string",
+          "example": "no data for this request in our database"
+        }
+      }
+    },
+    "parameters": {
+      "barcode": {
+        "name": "barcode",
+        "in": "query",
+        "description": "Штрих-код детали",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "example": "9100533340"
+      },
+      "brandParam": {
+        "name": "brand",
+        "in": "query",
+        "description": "Название бренда.<br>\nОбязательный параметр вместе с переданным значением Code.\n",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "example": "Narva"
+      },
+      "brandIdPath": {
+        "name": "brandId",
+        "in": "path",
+        "description": "ID бренда",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "brandOptional": {
+        "name": "brand",
+        "in": "query",
+        "description": "Название бренда",
+        "schema": {
+          "type": "string"
+        },
+        "example": "Philips"
+      },
+      "carEngineId": {
+        "name": "car[engineId]",
+        "in": "query",
+        "description": "ID двигателя",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "carGenerationId": {
+        "name": "car[generationId]",
+        "in": "query",
+        "description": "ID поколения",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "carId": {
+        "name": "carId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "catalogId": {
+        "name": "catalogId",
+        "in": "path",
+        "required": true,
+        "description": "ID каталога",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "accessories",
+            "auto_chemistry",
+            "auto_products",
+            "bearings",
+            "brake_tubes",
+            "car_battery",
+            "drive_belts",
+            "engine_valves",
+            "exhaust_system",
+            "filter_air",
+            "fuses",
+            "lamps",
+            "oils",
+            "parts_plugs",
+            "parts_to",
+            "tools",
+            "tyres",
+            "wheels",
+            "wipers"
+          ]
+        }
+      },
+      "code": {
+        "name": "code",
+        "in": "query",
+        "description": "Артикул детали",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "example": "11972U50CWX2"
+      },
+      "codeParam": {
+        "name": "code",
+        "in": "query",
+        "description": "Артикул детали.<br>\nОбязательный параметр вместе с переданным значением Brand.\n",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "example": "17177"
+      },
+      "entityId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "ID детали",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "generationIdPath": {
+        "name": "generationId",
+        "in": "path",
+        "description": "ID поколения",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "engineIdPath": {
+        "name": "engineId",
+        "in": "path",
+        "description": "Engine ID",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "groupId": {
+        "name": "groupId",
+        "in": "query",
+        "description": "ID группы",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "id": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "language": {
+        "name": "lang",
+        "in": "query",
+        "description": "Язык",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "en",
+            "ru"
+          ],
+          "default": "en"
+        },
+        "example": "ru"
+      },
+      "limit": {
+        "name": "limit",
+        "in": "query",
+        "description": "Количество элементов в ответе (мин: 1, макс: 100)",
+        "schema": {
+          "type": "integer",
+          "default": 25,
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "modelIdPath": {
+        "name": "modelId",
+        "in": "path",
+        "required": true,
+        "description": "ID модели",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "page": {
+        "name": "page",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1
+        }
+      },
+      "params": {
+        "name": "params[<paramId>]",
+        "in": "query",
+        "required": false,
+        "description": "Значения параметров деталей",
+        "schema": {
+          "type": "object"
+        }
+      },
+      "partIdQuery": {
+        "name": "id",
+        "in": "query",
+        "description": "ID детали.<br>\nОбязательный параметр без переданных значений Code и Brand детали. <br>\nТакже можно передать вместе с параметрами Code и Brand.\n",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "example": "27805381"
+      },
+      "queryBrandParse": {
+        "name": "q",
+        "in": "query",
+        "required": true,
+        "description": "Строка содержащая бренд",
+        "schema": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 250
+        },
+        "example": "febi"
+      },
+      "queryOptional": {
+        "name": "q",
+        "in": "query",
+        "required": false,
+        "description": "Поисковый запрос",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "querySuggest": {
+        "name": "q",
+        "in": "query",
+        "required": true,
+        "description": "Поисковый запрос",
+        "schema": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 250
+        },
+        "example": "lukoil armortech 5w-30"
+      },
+      "timeout": {
+        "name": "timeout",
+        "in": "query",
+        "description": "Время ожидания в миллисекундах",
+        "schema": {
+          "type": "string",
+          "default": 30000,
+          "minimum": 100,
+          "maximum": 60000
+        }
+      },
+      "typesQuery": {
+        "name": "types",
+        "in": "query",
+        "description": "Список типов отношений, разделённых запятыми.\n\nДоступные типы связей:\n- **alternative** - Альтернативой Детали (Бренд Артикул Название) является Деталь (Связанная деталь Бренд Артикул Название)\n- **analog** - Аналог (А = В)\n- **analog_other_side** - Аналог парный с одной стороны (Бренд Артикул Название) имеет парную Деталь с другой стороны (Связанная деталь Бренд Артикул Название)\n- **analog_part_of** - Деталь (Бренд Артикул Название) входит в состав Детали - узла (Связанная деталь Бренд Артикул Название)\n- **analog_repair** - Аналог с рем размерами (Бренд Артикул Название) равен Аналогу с ремонтным размером (Связанная деталь Бренд Артикул Название)\n- **has_analog** - Деталь - узел (Бренд Артикул Название) имеет в своем составе Деталь (Связанная деталь Бренд Артикул Название)\n- **kit_of_parts** - Комплект (Бренд Артикул Название) содержит в составе Деталь (Связанная деталь Бренд Артикул Название)\n- **original_alternative** - Оригинал альтернативной запчасти\n- **original_replacement** - Замена, новая Деталь (Бренд Артикул Название) заменила старую Деталь (Связанная деталь Бренд Артикул Название)\n- **part_for_repair_kit** - Деталь - узел (Бренд Артикул Название) возможно отремонтировать этим Ремкомплектом (Связанная деталь Бренд Артикул Название)\n- **part_in_repair_kit** - Деталь (Бренд Артикул Название) входит в состав Ремкомплекта (Связанная деталь Бренд Артикул Название)\n- **part_of_kit** - Деталь (Бренд Артикул Название) входит в состав Комплекта (Связанная деталь Бренд Артикул Название)\n- **possible_analog** - Аналог возможный\n- **related_part** - для Детали (Бренд Артикул Название) сопутствующая Деталь (Связанная деталь Бренд Артикул Название)\n- **repair_kit_for_part** - Ремкомплект (Бренд Артикул Название) для ремонта Детали - узла (Связанная деталь Бренд Артикул Название)\n- **repair_kit_in_part** - Ремкомплект (Бренд Артикул Название) содержит в составе Деталь (Связанная деталь Бренд Артикул Название)\n- **replacement** - Замена, старую Деталь (Бренд Артикул Название) заменили на новую Деталь (Связанная деталь Бренд Артикул Название)\n",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "all",
+            "alternative",
+            "analog",
+            "analog_other_side",
+            "analog_part_of",
+            "analog_repair",
+            "has_analog",
+            "kit_of_parts",
+            "original_alternative",
+            "original_replacement",
+            "part_for_repair_kit",
+            "part_in_repair_kit",
+            "part_of_kit",
+            "possible_analog",
+            "related_part",
+            "repair_kit_for_part",
+            "repair_kit_in_part",
+            "replacement"
+          ]
+        },
+        "example": "all"
+      },
+      "vinQueryRequired": {
+        "name": "vin",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "vinQueryOptional": {
+        "name": "vin",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "VIN code"
+      },
+      "vinOrFrameQueryOptional": {
+        "name": "q",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "VIN code или frame"
+      },
+      "frameQueryOptional": {
+        "name": "frame",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Frame number"
+      }
+    },
+    "responses": {
+      "BadRequestError": {
+        "description": "Ошибка запроса",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFoundError": {
+        "description": "Not Found Error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NoContent": {
+        "description": "No content: nothing found for provided parameters"
+      },
+      "BrandList": {
+        "description": "В ответе вы получаете информацию о брендах, которые доступны для данного артикула.<br>\nИнформация предоставлена в виде массива с данными.\n",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Brand"
+                  }
+                }
+              }
+            },
+            "example": {
+              "list": [
+                {
+                  "id": "4418",
+                  "name": "Philips"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "CarApplyList": {
+        "description": "OK",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CarApply"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "CarBrandList": {
+        "description": "OK",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CarBrand"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "CarModelList": {
+        "description": "OK",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CarModelWithBrand"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "CatalogEntity": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/CatalogEntity"
+            }
+          }
+        }
+      },
+      "CatalogEntityList": {
+        "description": "OK",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pagination": {
+                  "$ref": "#/components/schemas/LazyPagination"
+                },
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogEntityListItem"
+                  }
+                },
+                "catalog": {
+                  "$ref": "#/components/schemas/Catalog"
+                },
+                "subgroup": {
+                  "$ref": "#/components/schemas/Subgroup"
+                }
+              }
+            }
+          }
+        }
+      },
+      "CatalogList": {
+        "description": "OK",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogListItem"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "CatalogSuggestItemList": {
+        "description": "OK",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogSuggestItem"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "default": {
+        "description": "Непредвиденная ошибка",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "HashConflictError": {
+        "description": "Hash conflict",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "EngineList": {
+        "description": "OK",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Engine"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "EntityList": {
+        "description": "В ответе вы получаете полную информацию о запрошенной детали.<br>\nИнформация предоставлена в виде массива с данными.<br>\nНекоторые элементы массива, например параметры детали, также содержат массив с данными. Параметры детали отправляются в объекте Parameters.\n",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EntityByCodeBrand"
+                  }
+                }
+              }
+            },
+            "example": {
+              "list": [
+                {
+                  "id": "27805381",
+                  "name": {
+                    "id": "1384",
+                    "name": "Halogen lamp"
+                  },
+                  "originalName": "Ultinon Pro5000 HL",
+                  "code": "11972U50CWX2",
+                  "barcodes": [
+                    "8719018007841",
+                    "8719018007858"
+                  ],
+                  "brand": {
+                    "id": "4418",
+                    "name": "Philips",
+                    "group": null
+                  },
+                  "groups": {
+                    "main": [
+                      {
+                        "id": "3",
+                        "name": "Электрооборудование",
+                        "level": 1
+                      },
+                      {
+                        "id": "4",
+                        "name": "Система внутреннего освещения автомобиля",
+                        "level": 2
+                      }
+                    ],
+                    "additional": [
+                      [
+                        {
+                          "id": "3",
+                          "name": "Электрооборудование",
+                          "level": 1
+                        },
+                        {
+                          "id": "4",
+                          "name": "Система внутреннего освещения автомобиля",
+                          "level": 2
+                        }
+                      ],
+                      [
+                        {
+                          "id": "5",
+                          "name": "Кузов, остекление",
+                          "level": 1
+                        },
+                        {
+                          "id": "6",
+                          "name": "Система наружного освещения автомобиля",
+                          "level": 2
+                        }
+                      ],
+                      [
+                        {
+                          "id": "7",
+                          "name": "Кузов, остекление",
+                          "level": 1
+                        },
+                        {
+                          "id": "8",
+                          "name": "Система внутреннего освещения автомобиля",
+                          "level": 2
+                        }
+                      ]
+                    ]
+                  },
+                  "description": "",
+                  "parameters": [
+                    {
+                      "id": "50",
+                      "name": "All params",
+                      "params": [
+                        {
+                          "id": "63",
+                          "code": "",
+                          "title": "Voltage [V]",
+                          "type": "number",
+                          "values": [
+                            {
+                              "id": "15474470",
+                              "value": "13.2"
+                            }
+                          ]
+                        },
+                        {
+                          "id": "843",
+                          "code": "",
+                          "title": "Power [W]",
+                          "type": "number",
+                          "values": [
+                            {
+                              "id": "15474425",
+                              "value": "15"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "images": [
+                    "https://img-wm.parts-index.com/images/ca/5a/ca5a8d234553935457d1732accf2cd4d.jpg",
+                    "https://img-wm.parts-index.com/images/37/f4/37f4a2e0d452b14f9e6d93bf4d39c15f.jpeg",
+                    "https://img-wm.parts-index.com/images/7a/18/7a1885998e05b9016208732b588feef3.jpeg",
+                    "https://img-wm.parts-index.com/images/37/0e/370e361f043b96f2606d033e81136def.jpg"
+                  ],
+                  "links": [
+                    {
+                      "partId": "1234567",
+                      "code": "11972",
+                      "brand": {
+                        "id": "4418",
+                        "name": "Philips"
+                      },
+                      "parameters": [
+                        {
+                          "id": "63",
+                          "name": "Voltage [V]",
+                          "unit": "V",
+                          "value": "13.1"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "EntitiesBatchList": {
+        "description": "Batch result",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/EntityBatchItem"
+              }
+            }
+          }
+        }
+      },
+      "EntityRelationList": {
+        "description": "OK",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EntityRelation"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ForbiddenError": {
+        "description": "Доступ запрещен",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "1001": {
+                "summary": "Access Deny",
+                "value": {
+                  "code": 1001,
+                  "message": "forbidden: access deny"
+                }
+              },
+              "1002": {
+                "summary": "Domain Deny",
+                "value": {
+                  "code": 1002,
+                  "message": "forbidden: domain deny"
+                }
+              },
+              "1003": {
+                "summary": "IP Deny",
+                "value": {
+                  "code": 1003,
+                  "message": "forbidden: ip deny"
+                }
+              },
+              "1004": {
+                "summary": "Quota Deny",
+                "value": {
+                  "code": 1004,
+                  "message": "forbidden: quota deny"
+                }
+              },
+              "1005": {
+                "summary": "Resource Deny",
+                "value": {
+                  "code": 1005,
+                  "message": "forbidden: resource deny"
+                }
+              },
+              "1006": {
+                "summary": "No Auth Data",
+                "value": {
+                  "code": 1006,
+                  "message": "forbidden: no auth data"
+                }
+              }
+            }
+          }
+        }
+      },
+      "GenerationList": {
+        "description": "OK",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GenerationListItem"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ParamsList": {
+        "description": "Доступные параметры",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FilterParameter"
+                  }
+                },
+                "paramsQuery": {
+                  "$ref": "#/components/schemas/ParamsQuery"
+                }
+              }
+            }
+          }
+        }
+      },
+      "ParsedBrandList": {
+        "description": "В ответе вы получаете информацию о бренде с его правильным названием и списком синонимов.<br>\nИнформация предоставлена в виде массива с данными.\n",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ParsedBrand"
+                  }
+                }
+              }
+            },
+            "example": {
+              "list": [
+                {
+                  "id": "3935",
+                  "name": "Febi bilstein",
+                  "source": "febi",
+                  "oem": false,
+                  "synonyms": [
+                    "FEBIBILSTEIN",
+                    "FEBI TRUCK",
+                    "FEBI LIQUID",
+                    "FEBI",
+                    "FEBI BLISTEIN"
+                  ],
+                  "group": null
+                }
+              ]
+            }
+          }
+        }
+      },
+      "PartsByVinCarResults": {
+        "description": "OK",
+        "headers": {
+          "X-Message": {
+            "$ref": "#/components/headers/X-Message"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "$ref": "#/components/schemas/PartsByVinCarResultsStatus"
+                },
+                "partsBrand": {
+                  "$ref": "#/components/schemas/Brand"
+                },
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PartByVin"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "PartsByVinCars": {
+        "description": "The response contains information about the found vehicle including its characteristics and ID, which allows you to get the list of the necessary auto parts later.<br> <br> The parameters Brand and Model contain information about the brand and model of the vehicle.<br> Example: Honda Accord<br> <br> The parameter Description contains general information about the vehicle. For example, the engine, gear, number of doors, etc.<br> <br> Should there be more than 1 vehicle found by 1 VIN, whose Description parameters are the same, you will get an additional parameter Info.<br> The parameter Info contains data which allow distinguishing one vehicle from the other.\n",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PartsByVinCar"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "UnauthorizedError": {
+        "description": "Ошибка авторизации",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "InternalServerError": {
+        "description": "Внутренняя ошибка сервера",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "BadGateway": {
+        "description": "Плохой шлюз",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "GatewayTimeout": {
+        "description": "Тайм-аут шлюза",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization"
+      }
+    },
+    "schemas": {
+      "Brand": {
+        "type": "object",
+        "description": "Бренд",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID бренда"
+          },
+          "name": {
+            "type": "string",
+            "description": "Название бренда"
+          }
+        }
+      },
+      "BrandWithGroup": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "group": {
+            "$ref": "#/components/schemas/BrandGroup"
+          }
+        }
+      },
+      "BrandGroup": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CarApply": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Название бренда"
+          },
+          "model": {
+            "type": "string",
+            "description": "Название модели"
+          },
+          "modif": {
+            "type": "string",
+            "description": "Название модификации"
+          },
+          "dateFrom": {
+            "type": "integer",
+            "description": "Дата начала производства"
+          },
+          "dateTo": {
+            "type": "integer",
+            "description": "Дата окончания производства"
+          },
+          "kw": {
+            "type": "integer",
+            "description": "Киловатты"
+          },
+          "hp": {
+            "type": "integer",
+            "description": "Лошадиные силы"
+          },
+          "cc": {
+            "type": "integer",
+            "description": "Кубические сантиметры"
+          },
+          "body": {
+            "type": "string",
+            "description": "Кузов"
+          },
+          "engCode": {
+            "type": "string",
+            "description": "Код двигателя"
+          }
+        }
+      },
+      "CarBrand": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID бренда"
+          },
+          "name": {
+            "type": "string",
+            "description": "Название бренда"
+          }
+        },
+        "example": {
+          "id": "5",
+          "name": "Bmw"
+        }
+      },
+      "CarInfo": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        },
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "CarModelWithBrand": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID модели"
+          },
+          "name": {
+            "type": "string",
+            "description": "Название модели"
+          },
+          "image": {
+            "type": "string",
+            "description": "Изображение модели"
+          },
+          "brand": {
+            "$ref": "#/components/schemas/CarBrand"
+          }
+        }
+      },
+      "Catalog": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CatalogEntity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "catalog": {
+            "$ref": "#/components/schemas/Catalog"
+          },
+          "subgroups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Subgroup"
+            }
+          },
+          "name": {
+            "$ref": "#/components/schemas/EntityName"
+          },
+          "originalName": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "barcodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "brand": {
+            "$ref": "#/components/schemas/Brand"
+          },
+          "description": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParamsGroup"
+            }
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Image"
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityLink"
+            }
+          }
+        }
+      },
+      "CatalogEntityListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "$ref": "#/components/schemas/EntityName"
+          },
+          "originalName": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "brand": {
+            "$ref": "#/components/schemas/Brand"
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParamWithValues"
+            }
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Image"
+            }
+          }
+        }
+      },
+      "CatalogListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "image": {
+            "$ref": "#/components/schemas/Image"
+          }
+        }
+      },
+      "CatalogSuggestItem": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "Engine": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID двигателя"
+          },
+          "brand": {
+            "$ref": "#/components/schemas/Brand"
+          },
+          "type": {
+            "type": "object",
+            "description": "Тип двигателя",
+            "deprecated": true,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "ID типа двигателя"
+              },
+              "name": {
+                "type": "string",
+                "description": "Наименование типа двигателя"
+              }
+            }
+          },
+          "types": {
+            "type": "array",
+            "description": "Типы двигателей",
+            "items": {
+              "$ref": "#/components/schemas/EngineType"
+            }
+          },
+          "code": {
+            "type": "string",
+            "description": "Код двигателя"
+          },
+          "hp": {
+            "type": "integer",
+            "description": "Лошадиные силы"
+          },
+          "kw": {
+            "type": "integer",
+            "description": "Киловатты"
+          },
+          "cc": {
+            "type": "integer",
+            "description": "Кубические сантиметры"
+          },
+          "litre": {
+            "type": "number",
+            "description": "Литры"
+          },
+          "liquidVolume": {
+            "type": "number",
+            "description": "Объем заливаемой жидкости"
+          }
+        }
+      },
+      "EngineType": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID типа двигателя"
+          },
+          "name": {
+            "type": "string",
+            "description": "Наименование типа двигателя"
+          }
+        }
+      },
+      "EntityGroups": {
+        "type": "object",
+        "properties": {
+          "main": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityGroup"
+            }
+          },
+          "additional": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/EntityGroup"
+              }
+            }
+          }
+        }
+      },
+      "EntityByCodeBrand": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "$ref": "#/components/schemas/EntityName"
+          },
+          "originalName": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "barcodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "brand": {
+            "$ref": "#/components/schemas/BrandWithGroup"
+          },
+          "groups": {
+            "$ref": "#/components/schemas/EntityGroups"
+          },
+          "description": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParamsGroup"
+            }
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Image"
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityLink"
+            }
+          }
+        }
+      },
+      "EntityBatchEntity": {
+        "type": "object",
+        "properties": {
+          "list": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityByCodeBrand"
+            }
+          }
+        }
+      },
+      "EntityBatchError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "msg": {
+            "type": "string"
+          }
+        }
+      },
+      "EntityBatchItem": {
+        "type": "object",
+        "properties": {
+          "hash": {
+            "type": "string"
+          },
+          "entity": {
+            "$ref": "#/components/schemas/EntityBatchEntity"
+          },
+          "error": {
+            "$ref": "#/components/schemas/EntityBatchError"
+          }
+        }
+      },
+      "EntitiesBatchRequest": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/EntitiesBatchRequestItem"
+        }
+      },
+      "EntitiesBatchRequestItem": {
+        "type": "object",
+        "required": [
+          "code",
+          "brand",
+          "hash"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          }
+        }
+      },
+      "EntitySchemaName": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "EntityCoordinates": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          }
+        }
+      },
+      "EntityGroup": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer"
+          }
+        }
+      },
+      "EntityLink": {
+        "type": "object",
+        "properties": {
+          "partId": {
+            "type": "string",
+            "description": "ID детали"
+          },
+          "code": {
+            "type": "string",
+            "description": "Артикул детали"
+          },
+          "brand": {
+            "$ref": "#/components/schemas/Brand"
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityLinkParameter"
+            }
+          }
+        }
+      },
+      "EntityLinkParameter": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Parameter ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of parameter"
+          },
+          "unit": {
+            "type": "string",
+            "nullable": true,
+            "description": "Parameter units"
+          },
+          "value": {
+            "type": "string",
+            "description": "Parameter value"
+          }
+        }
+      },
+      "EntityName": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "EntityRelation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "relation": {
+            "type": "string"
+          },
+          "brand": {
+            "$ref": "#/components/schemas/Brand"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "FilterParameter": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "isGeneral": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "select",
+              "range"
+            ]
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "available": {
+                  "type": "boolean"
+                },
+                "selected": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "GenerationListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID поколения"
+          },
+          "name": {
+            "type": "string",
+            "description": "Наименование поколения"
+          },
+          "brandId": {
+            "type": "string",
+            "description": "ID бренда"
+          },
+          "modelId": {
+            "type": "string",
+            "description": "ID модели"
+          },
+          "yearBegin": {
+            "type": "string",
+            "description": "Год начала производства"
+          },
+          "yearEnd": {
+            "type": "string",
+            "description": "Год окончания производства"
+          }
+        }
+      },
+      "Group": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "lang": {
+            "type": "string",
+            "enum": [
+              "en",
+              "ru"
+            ],
+            "default": "en"
+          },
+          "image": {
+            "$ref": "#/components/schemas/Image"
+          },
+          "lft": {
+            "type": "integer"
+          },
+          "rgt": {
+            "type": "integer"
+          },
+          "entityNames": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityName"
+            }
+          }
+        }
+      },
+      "Groups": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Group"
+        }
+      },
+      "ExportGroup": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "lang": {
+            "type": "string",
+            "enum": [
+              "en",
+              "ru"
+            ],
+            "default": "en"
+          },
+          "image": {
+            "$ref": "#/components/schemas/Image"
+          },
+          "lft": {
+            "type": "integer"
+          },
+          "rgt": {
+            "type": "integer"
+          },
+          "level": {
+            "type": "integer"
+          },
+          "root": {
+            "type": "integer"
+          },
+          "entityNames": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityName"
+            }
+          }
+        }
+      },
+      "ExportGroups": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/ExportGroup"
+        }
+      },
+      "Image": {
+        "type": "string",
+        "example": "https://img.parts-index.com/original.png"
+      },
+      "LazyPagination": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "object",
+            "properties": {
+              "prev": {
+                "type": "integer",
+                "nullable": true
+              },
+              "current": {
+                "type": "integer"
+              },
+              "next": {
+                "type": "integer",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
+      "ParamValue": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID значения параметра"
+          },
+          "value": {
+            "type": "string",
+            "description": "Значение параметра"
+          }
+        }
+      },
+      "ParamWithValues": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID параметра"
+          },
+          "code": {
+            "type": "string",
+            "description": "Код параметра"
+          },
+          "title": {
+            "type": "string",
+            "description": "Название параметра"
+          },
+          "type": {
+            "type": "string",
+            "description": "Тип значения параметра"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParamValue"
+            }
+          }
+        },
+        "example": {
+          "id": "1",
+          "code": "",
+          "title": "Oil type",
+          "type": "enum",
+          "values": [
+            {
+              "id": "4",
+              "value": "Hydraulic oil"
+            }
+          ]
+        }
+      },
+      "ParamsGroup": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParamWithValues"
+            }
+          }
+        }
+      },
+      "ParamsQuery": {
+        "type": "object",
+        "properties": {
+          "paramId": {
+            "type": "string"
+          }
+        },
+        "example": {
+          "760": "5985"
+        }
+      },
+      "ParsedBrand": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "oem": {
+            "type": "boolean"
+          },
+          "synonyms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "group": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "PartByVin": {
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "groups"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityGroup"
+            }
+          }
+        }
+      },
+      "PartsByVinCar": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "brand": {
+            "$ref": "#/components/schemas/CarBrand"
+          },
+          "model": {
+            "type": "string"
+          },
+          "year": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "info": {
+            "$ref": "#/components/schemas/CarInfo"
+          }
+        }
+      },
+      "PartsByVinCarResultsStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "in_progress",
+          "success",
+          "failed"
+        ]
+      },
+      "Subgroup": {
+        "nullable": true,
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
