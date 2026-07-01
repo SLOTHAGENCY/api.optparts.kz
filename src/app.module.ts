@@ -36,6 +36,8 @@ import { AppSetting } from './settings/entities/app-setting.entity';
 import { SettingsModule } from './settings/settings.module';
 import { BrandMarkup } from './pricing/entities/brand-markup.entity';
 import { CommonModule } from './common/common.module';
+import { CatalogModule } from './catalog/catalog.module';
+import { CatalogCache } from './catalog/cache/catalog-cache.entity';
 
 @Module({
   imports: [
@@ -47,7 +49,7 @@ import { CommonModule } from './common/common.module';
         username: process.env.DB_USERNAME || 'postgres',
         password: process.env.DB_PASSWORD || 'postgres',
         database: process.env.DB_NAME || 'nestjs_auth',
-        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting, BrandMarkup],
+        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting, BrandMarkup, CatalogCache],
         migrations: ['dist/migrations/*.js'],
         synchronize: process.env.NODE_ENV === 'development',
         logging: process.env.NODE_ENV === 'development',
@@ -80,6 +82,7 @@ import { CommonModule } from './common/common.module';
     PricingModule,
     SearchModule,
     SettingsModule,
+    CatalogModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

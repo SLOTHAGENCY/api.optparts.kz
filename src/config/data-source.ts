@@ -16,6 +16,7 @@ import { SearchLog } from '../search/entities/search-log.entity';
 import { SupplierOrder } from '../orders/entities/supplier-order.entity';
 import { PartnerProduct } from '../partner-products/entities/partner-product.entity';
 import { AppSetting } from '../settings/entities/app-setting.entity';
+import { CatalogCache } from '../catalog/cache/catalog-cache.entity';
 dotenv.config();
 
 export const AppDataSource = new DataSource({
@@ -42,6 +43,7 @@ export const AppDataSource = new DataSource({
     SupplierOrder,
     PartnerProduct,
     AppSetting,
+    CatalogCache,
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
