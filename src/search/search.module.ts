@@ -16,5 +16,6 @@ import { SettingsModule } from '../settings/settings.module';
   ],
   controllers: [SearchController],
   providers: [SearchService],
+  exports: [SearchService],
 })
 export class SearchModule {}
