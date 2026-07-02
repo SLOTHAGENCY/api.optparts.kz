@@ -83,7 +83,15 @@ export class PartsCatalogService {
 
   async groups(catalogId: string, lang?: string): Promise<GroupNodeDto[]> {
     const res = await this.get<any>(`/catalogs/${catalogId}/groups`, { lang }, CATALOG_TTL.REFERENCE_MS);
-    const nodes: any[] = Array.isArray(res) ? res : (res?.list ?? []);
+    // PartsIndex returns a single ROOT group object {id,name,subgroups[]} (not an
+    // array, not {list}). Wrap it so the tree exposes the root + its subgroups.
+    const nodes: any[] = Array.isArray(res)
+      ? res
+      : res?.list
+        ? res.list
+        : res?.id != null
+          ? [res]
+          : [];
     return nodes.map(normalizeGroup);
   }
 
