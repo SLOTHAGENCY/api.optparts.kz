@@ -3,6 +3,10 @@ import { Transform } from 'class-transformer';
 import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class SearchFilterDto {
+  @ApiPropertyOptional({ example: '0451103316', description: 'Артикул (номер) детали' })
+  @IsOptional() @IsString()
+  article?: string;
+
   @ApiPropertyOptional({ example: 'BOSCH' })
   @IsOptional() @IsString()
   brand?: string;
