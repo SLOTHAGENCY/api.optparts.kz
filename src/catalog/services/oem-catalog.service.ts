@@ -97,9 +97,12 @@ export class OemCatalogService {
     page?: number,
     lang?: string,
   ): Promise<{ items: OemCarDto[]; total: number | null }> {
+    // parts-catalogs cars2 pagination is 0-based (page 0 = first 25 cars); our
+    // API is 1-based, so translate. page 1 -> provider 0.
+    const providerPage = page != null ? Math.max(0, page - 1) : undefined;
     return this.fetch(
       `/catalogs/${catalogId}/cars2/`,
-      { modelId, parameter, page },
+      { modelId, parameter, page: providerPage },
       CATALOG_TTL.DYNAMIC_MS,
       ({ data, headers }) => ({
         items: (data ?? []).map((c: any) => mapCar(c, catalogId)),
