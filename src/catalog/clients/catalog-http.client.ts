@@ -70,11 +70,23 @@ export class CatalogHttpClient {
   private mapError(err: any): Error {
     const status: number | undefined = err?.response?.status;
     const body = err?.response?.data;
+    const code = body?.code;
+    const detail = body?.message
+      ? `${body.message}${code != null ? ` (code ${code})` : ''}`
+      : undefined;
     if (status == null) return new CatalogUpstreamException();
-    if (status === 403 && Number(body?.code) === 1004) {
-      return new CatalogQuotaExceededException();
+    if (status === 403 && Number(code) === 1004) {
+      return new CatalogQuotaExceededException(
+        `Лимит запросов провайдера (${this.cfg.provider}) исчерпан${detail ? `: ${detail}` : ''}.`,
+      );
     }
-    if (status === 401 || status === 403) return new CatalogConfigException();
+    if (status === 401 || status === 403) {
+      // 1001 access, 1002 domain, 1003 ip, 1005 resource, 1006 no-auth deny.
+      return new CatalogConfigException(
+        `Доступ к провайдеру ${this.cfg.provider} отклонён${detail ? `: ${detail}` : ''}. ` +
+          `Проверьте ключ и белый список IP (наш исходящий IP должен быть разрешён).`,
+      );
+    }
     if (status === 404) return new NotFoundException('Not found in catalog provider.');
     if (status === 400 || status === 422) {
       return new BadRequestException('Invalid catalog request.');
