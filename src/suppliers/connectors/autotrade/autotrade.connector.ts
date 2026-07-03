@@ -38,6 +38,7 @@ export class AutotradeConnector implements SupplierConnector {
   private static readonly SALT = '1>6)/MI~{J';
 
   private readonly envMap = {
+    AUTH_KEY: 'AUTOTRADE_AUTH_KEY',
     LOGIN: 'AUTOTRADE_LOGIN', PASSWORD: 'AUTOTRADE_PASSWORD',
     CONTRACT_ID: 'AUTOTRADE_CONTRACT_ID', PAYMENT_TYPE: 'AUTOTRADE_PAYMENT_TYPE',
     RECEIPT_TYPE: 'AUTOTRADE_RECEIPT_TYPE', API_URL: 'AUTOTRADE_API_URL',
@@ -46,11 +47,15 @@ export class AutotradeConnector implements SupplierConnector {
   constructor(private readonly suppliers: SuppliersService) {}
 
   async isConfigured(): Promise<boolean> {
-    return hasKeys(await resolveConfig(this.suppliers, this.code, this.envMap),
-      ['LOGIN', 'PASSWORD']);
+    const c = await resolveConfig(this.suppliers, this.code, this.envMap);
+    // Either a ready-made API key (== auth_key) OR login+password to derive it.
+    return hasKeys(c, ['AUTH_KEY']) || hasKeys(c, ['LOGIN', 'PASSWORD']);
   }
 
   private async authKey(c: Record<string, string>): Promise<string> {
+    // Autotrade issues a ready "Ключ API" (== auth_key, regenerated on password
+    // change). Use it directly when provided; otherwise derive it.
+    if ((c.AUTH_KEY || '').trim()) return c.AUTH_KEY.trim();
     const login = c.LOGIN || '';
     const password = c.PASSWORD || '';
     const md5 = (s: string) => createHash('md5').update(s).digest('hex');
@@ -66,6 +71,12 @@ export class AutotradeConnector implements SupplierConnector {
     const res = await axios.post(url, body, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        Accept: 'application/json, text/plain, */*',
+        // Autotrade sits behind DDoS-Guard, which serves an HTML challenge to
+        // requests without a browser-like User-Agent.
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+          '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
       timeout: Number(c.TIMEOUT_MS) || 15000,
     });
