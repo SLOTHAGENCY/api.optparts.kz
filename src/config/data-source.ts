@@ -17,6 +17,7 @@ import { SupplierOrder } from '../orders/entities/supplier-order.entity';
 import { PartnerProduct } from '../partner-products/entities/partner-product.entity';
 import { AppSetting } from '../settings/entities/app-setting.entity';
 import { CatalogCache } from '../catalog/cache/catalog-cache.entity';
+import { News } from '../news/entities/news.entity';
 dotenv.config();
 
 export const AppDataSource = new DataSource({
@@ -44,6 +45,7 @@ export const AppDataSource = new DataSource({
     PartnerProduct,
     AppSetting,
     CatalogCache,
+    News,
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
