@@ -51,7 +51,12 @@ export class GarageService {
     }
     const patch: Partial<Vehicle> = { ...dto };
     if (dto.vin !== undefined) {
-      patch.vin = this.normalizeVin(dto.vin);
+      const vin = this.normalizeVin(dto.vin);
+      const existing = await this.repo.findOne({ where: { userId, vin } });
+      if (existing && existing.id !== id) {
+        throw new ConflictException('Это авто уже в гараже.');
+      }
+      patch.vin = vin;
     }
     Object.assign(vehicle, patch);
     return this.repo.save(vehicle);

@@ -106,4 +106,23 @@ describe('GarageService', () => {
     await service.delete('v1', 'u1');
     expect(store).toHaveLength(0);
   });
+
+  it('rejects updating a vehicle VIN to match another vehicle of the same user', async () => {
+    const { service } = makeService([
+      makeVehicle({ id: 'v1', vin: 'JHMES000000000ABC' }),
+      makeVehicle({ id: 'v2', vin: 'SECONDVIN0001' }),
+    ]);
+    await expect(
+      service.update('v2', 'u1', { vin: 'jhmes000000000abc' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('allows updating a vehicle keeping its own VIN or changing other fields', async () => {
+    const { service } = makeService([
+      makeVehicle({ id: 'v1', vin: 'JHMES000000000ABC' }),
+    ]);
+    const result = await service.update('v1', 'u1', { vin: 'jhmes000000000abc', model: 'Civic' });
+    expect(result.vin).toBe('JHMES000000000ABC');
+    expect(result.model).toBe('Civic');
+  });
 });
