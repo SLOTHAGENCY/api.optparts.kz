@@ -41,6 +41,7 @@ import { CatalogCache } from './catalog/cache/catalog-cache.entity';
 import { NewsModule } from './news/news.module';
 import { News } from './news/entities/news.entity';
 import { AdminStatsModule } from './admin-stats/admin-stats.module';
+import { MonitoringModule } from './monitoring/monitoring.module';
 
 @Module({
   imports: [
@@ -88,6 +89,7 @@ import { AdminStatsModule } from './admin-stats/admin-stats.module';
     CatalogModule,
     NewsModule,
     AdminStatsModule,
+    MonitoringModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
