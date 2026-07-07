@@ -46,9 +46,6 @@ export class GarageService {
 
   async update(id: string, userId: string, dto: UpdateVehicleDto): Promise<Vehicle> {
     const vehicle = await this.findOne(id, userId);
-    if (dto.main === true) {
-      await this.unsetMain(userId);
-    }
     const patch: Partial<Vehicle> = { ...dto };
     if (dto.vin !== undefined) {
       const vin = this.normalizeVin(dto.vin);
@@ -57,6 +54,9 @@ export class GarageService {
         throw new ConflictException('Это авто уже в гараже.');
       }
       patch.vin = vin;
+    }
+    if (dto.main === true) {
+      await this.unsetMain(userId);
     }
     Object.assign(vehicle, patch);
     return this.repo.save(vehicle);
