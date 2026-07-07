@@ -42,6 +42,8 @@ import { NewsModule } from './news/news.module';
 import { News } from './news/entities/news.entity';
 import { AdminStatsModule } from './admin-stats/admin-stats.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
+import { GarageModule } from './garage/garage.module';
+import { Vehicle } from './garage/entities/vehicle.entity';
 
 @Module({
   imports: [
@@ -53,7 +55,7 @@ import { MonitoringModule } from './monitoring/monitoring.module';
         username: process.env.DB_USERNAME || 'postgres',
         password: process.env.DB_PASSWORD || 'postgres',
         database: process.env.DB_NAME || 'nestjs_auth',
-        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting, BrandMarkup, CatalogCache, News],
+        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting, BrandMarkup, CatalogCache, News, Vehicle],
         migrations: ['dist/migrations/*.js'],
         synchronize: process.env.NODE_ENV === 'development',
         logging: process.env.NODE_ENV === 'development',
@@ -74,6 +76,7 @@ import { MonitoringModule } from './monitoring/monitoring.module';
       : []),
     CommonModule,
     AddressesModule,
+    GarageModule,
     AuthModule,
     UsersModule,
     ProductsModule,
