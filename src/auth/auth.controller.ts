@@ -122,6 +122,7 @@ export class AuthController {
       ...(dto.email && { email: dto.email }),
       ...(dto.firstName && { firstName: dto.firstName }),
       ...(dto.lastName && { lastName: dto.lastName }),
+      ...(dto.phones && { phones: dto.phones }),
     });
     return { message: 'Profile updated successfully.', user: updated };
   }
