@@ -39,7 +39,7 @@ export class UsersService {
 
   async update(
     id: string,
-    data: Partial<Pick<User, 'firstName' | 'lastName' | 'profileImage' | 'email'>>,
+    data: Partial<Pick<User, 'firstName' | 'lastName' | 'profileImage' | 'email' | 'phones'>>,
   ): Promise<User> {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('User not found.');

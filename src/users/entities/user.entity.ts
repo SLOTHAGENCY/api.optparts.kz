@@ -40,6 +40,9 @@ export class User {
   @Column({ nullable: true, default: null })
   profileImage: string | null;
 
+  @Column({ type: 'simple-array', default: '' })
+  phones: string[];
+
   @CreateDateColumn()
   createdAt: Date;
 

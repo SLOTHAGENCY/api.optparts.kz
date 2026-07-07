@@ -207,6 +207,38 @@ describe('OrdersService.create', () => {
     expect(order.addressId).toBe('addr-1');
   });
 
+  it('persists recipientName, recipientPhone and customerComment for delivery orders', async () => {
+    const mock = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const { service } = makeDeps([makeCheckoutItem()], { mock });
+    const order = await service.create('u1', {
+      deliveryType: DeliveryType.DELIVERY,
+      addressId: 'addr-1',
+      recipientName: 'Ivan Ivanov',
+      recipientPhone: '+7 700 123 45 67',
+      customerComment: 'Call before delivery',
+    } as any);
+    expect(order.recipientName).toBe('Ivan Ivanov');
+    expect(order.recipientPhone).toBe('+7 700 123 45 67');
+    expect(order.customerComment).toBe('Call before delivery');
+  });
+
+  it('defaults recipient fields to null when not provided', async () => {
+    const mock = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const { service } = makeDeps([makeCheckoutItem()], { mock });
+    const order = await service.create('u1', {
+      deliveryType: DeliveryType.PICKUP,
+    });
+    expect(order.recipientName).toBeNull();
+    expect(order.recipientPhone).toBeNull();
+    expect(order.customerComment).toBeNull();
+  });
+
   it('ignores address for pickup orders', async () => {
     const mock = new MockConnector().setOrderResult({
       externalOrderId: 'EXT-1',
