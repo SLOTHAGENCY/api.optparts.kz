@@ -73,6 +73,15 @@ export class Order {
   @Column({ default: false })
   isTest: boolean;
 
+  @Column({ type: 'varchar', length: 150, nullable: true, default: null })
+  recipientName: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true, default: null })
+  recipientPhone: string | null;
+
+  @Column({ type: 'text', nullable: true, default: null })
+  customerComment: string | null;
+
   @Column({ type: 'text', nullable: true, default: null })
   managerComment: string | null;
 

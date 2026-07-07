@@ -141,6 +141,9 @@ export class OrdersService {
       userId,
       deliveryType: dto.deliveryType,
       addressId,
+      recipientName: dto.recipientName ?? null,
+      recipientPhone: dto.recipientPhone ?? null,
+      customerComment: dto.customerComment ?? null,
       status: OrderStatus.NEW,
       isTest,
       totalAmount: items.reduce(
