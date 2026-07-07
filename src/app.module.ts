@@ -38,6 +38,8 @@ import { BrandMarkup } from './pricing/entities/brand-markup.entity';
 import { CommonModule } from './common/common.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { CatalogCache } from './catalog/cache/catalog-cache.entity';
+import { NewsModule } from './news/news.module';
+import { News } from './news/entities/news.entity';
 
 @Module({
   imports: [
@@ -49,7 +51,7 @@ import { CatalogCache } from './catalog/cache/catalog-cache.entity';
         username: process.env.DB_USERNAME || 'postgres',
         password: process.env.DB_PASSWORD || 'postgres',
         database: process.env.DB_NAME || 'nestjs_auth',
-        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting, BrandMarkup, CatalogCache],
+        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting, BrandMarkup, CatalogCache, News],
         migrations: ['dist/migrations/*.js'],
         synchronize: process.env.NODE_ENV === 'development',
         logging: process.env.NODE_ENV === 'development',
@@ -83,6 +85,7 @@ import { CatalogCache } from './catalog/cache/catalog-cache.entity';
     SearchModule,
     SettingsModule,
     CatalogModule,
+    NewsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
