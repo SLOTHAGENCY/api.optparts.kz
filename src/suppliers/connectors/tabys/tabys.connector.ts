@@ -60,26 +60,34 @@ export class TabysConnector implements SupplierConnector {
     const c = await resolveConfig(this.suppliers, this.code, this.envMap);
     const client = this.http(c);
 
-    // Build brand+productCode pairs. With a brand → one pair; otherwise resolve
-    // candidate brands for the article first.
-    let products: Array<{ brand: string; productCode: string }>;
+    // Build brandName+productCode pairs. With a brand → one pair; otherwise
+    // resolve candidate brands for the article first.
+    let products: Array<{ brandName: string; productCode: string }>;
     if (brand) {
-      products = [{ brand, productCode: article }];
+      products = [{ brandName: brand, productCode: article }];
     } else {
       const brands = await this.resolveBrands(client, article);
-      products = brands.map((b) => ({ brand: b, productCode: article }));
+      products = brands.map((b) => ({ brandName: b, productCode: article }));
       if (!products.length) return [];
     }
 
     let data: any;
     try {
+      // All filter fields are required by the API (nullable = "no filter").
       const res = await client.post(
         '/v1/product-offers/by-brand-and-product-code',
         {
           products,
           contractId: c.CONTRACT_ID,
           outletId: c.OUTLET_ID,
+          priceFrom: null,
+          priceTo: null,
+          deliveryMinDays: null,
+          deliveryMaxDays: null,
+          offersMaxNum: Number(c.OFFERS_MAX_NUM) || 50,
+          orderByPrice: true,
           enableAnalog: true,
+          warehouses: [],
           isInStockInHomeWarehousesOnly: false,
         },
       );
@@ -92,9 +100,25 @@ export class TabysConnector implements SupplierConnector {
     return this.mapOffers(data, article, brand);
   }
 
+  /**
+   * Flatten the offer items out of a Tabys response. The live endpoint returns
+   * an object keyed by outletId → { items: [...] }; a bare array or a plain
+   * { items: [...] } are also accepted (test/legacy shapes).
+   */
+  private extractItems(data: any): any[] {
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.items)) return data.items;
+    if (data && typeof data === 'object') {
+      return Object.values(data).flatMap((v: any) =>
+        Array.isArray(v?.items) ? v.items : [],
+      );
+    }
+    return [];
+  }
+
   /** Public for unit testing without a live HTTP call. */
   mapOffers(data: any, article: string, brand?: string): SupplierOffer[] {
-    const items: any[] = Array.isArray(data) ? data : data?.items ?? [];
+    const items: any[] = this.extractItems(data);
     const offers: SupplierOffer[] = [];
 
     for (const item of items) {
@@ -108,31 +132,45 @@ export class TabysConnector implements SupplierConnector {
       const productId = item?.productId;
 
       for (const offer of item?.offers ?? []) {
+        // Tabys emits a home-warehouse placeholder row per product with no price
+        // and no stock (price/amount = 0). It is not orderable and, being the
+        // cheapest, would steal the "best price" badge — skip it. A priced
+        // out-of-stock line (amount 0, price > 0) is a real back-order offer.
+        const price = this.toNumber(offer?.price);
+        if (price <= 0) continue;
+
+        // An offer is orderable either as a price template (marketplace) or from
+        // an own warehouse. sourceType 1 = PriceTemplate, 0 = Warehouse.
+        const priceTemplateId = offer?.priceTemplateId ?? null;
+        const warehouseId = offer?.warehouseId ?? null;
+        const usePriceTemplate = priceTemplateId != null;
+        const sourceId = usePriceTemplate ? priceTemplateId : warehouseId;
+
         offers.push({
           supplierCode: this.code,
           article: itemArticle,
           brand: itemBrand,
           name,
-          costPrice: this.toNumber(offer?.price),
+          costPrice: price,
           currency: 'KZT',
           count: this.toNumber(offer?.amount),
           deliveryDays: this.toNumber(offer?.deliveryInfo?.workDays),
           multiplicity: this.toNumber(offer?.minPackSize) || 1,
-          warehouseId: String(offer?.warehouseId ?? ''),
+          warehouseId: String(warehouseId ?? ''),
           isAnalog,
           // Everything placeOrder needs back.
           raw: {
-            // Stable offer identity: product + price template (the orderable line).
-            offerKey: `${productId}|${offer?.priceTemplateId ?? offer?.warehouseId ?? ''}`,
+            // Stable offer identity: product + the orderable source line.
+            offerKey: `${productId}|${sourceId ?? ''}`,
             // Original query, so the cart re-check reproduces the same response.
             queryArticle: article,
             queryBrand: brand ?? null,
             productId,
-            sourceType: 1, // PriceTemplate
-            sourceId: offer?.priceTemplateId ?? null,
+            sourceType: usePriceTemplate ? 1 : 0,
+            sourceId,
             priceTemplateUniqueCode: offer?.priceTemplateUniqueCode ?? null,
-            warehouseId: offer?.warehouseId ?? null,
-            price: this.toNumber(offer?.price),
+            warehouseId,
+            price,
           },
         });
       }
@@ -222,8 +260,13 @@ export class TabysConnector implements SupplierConnector {
       const res = await client.get('/v1/brands', {
         params: { productCode: article },
       });
-      const rows: any[] = Array.isArray(res.data) ? res.data : res.data?.items ?? [];
-      return rows.map((b) => String(b?.name)).filter(Boolean);
+      // GET /v1/brands returns { item: [{ id, name }] } (note: singular "item").
+      const rows: any[] = Array.isArray(res.data)
+        ? res.data
+        : res.data?.item ?? res.data?.items ?? [];
+      // De-dupe: one physical brand often appears under several display names.
+      const names = rows.map((b) => String(b?.name)).filter(Boolean);
+      return [...new Set(names)];
     } catch (err: any) {
       this.logger.error('Tabys brands lookup failed', err?.message);
       return [];

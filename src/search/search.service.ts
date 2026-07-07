@@ -101,6 +101,7 @@ export class SearchService {
 
     this.logSearch({
       userId: userId ?? null,
+      queryType: 'article',
       article,
       brand: brand ?? null,
       totalResults,
@@ -256,6 +257,27 @@ export class SearchService {
 
   private countOffers(groups: SearchGroupDto[]): number {
     return groups.reduce((sum, group) => sum + group.offers.length, 0);
+  }
+
+  /**
+   * Records a VIN/FRAME car-lookup into search_log. Fire-and-forget, like article search.
+   * suppliersQueried/Failed are 0 — a VIN search hits the OEM catalog, not suppliers.
+   */
+  logVinSearch(entry: {
+    userId?: string | null;
+    vin: string;
+    catalogs?: string | null;
+    matchedCars: number;
+  }): void {
+    this.logSearch({
+      userId: entry.userId ?? null,
+      queryType: 'vin',
+      article: entry.vin,
+      brand: entry.catalogs ?? null,
+      totalResults: entry.matchedCars,
+      suppliersQueried: 0,
+      suppliersFailed: 0,
+    });
   }
 
   /** Fire-and-forget: a write failure must never affect the search response. */

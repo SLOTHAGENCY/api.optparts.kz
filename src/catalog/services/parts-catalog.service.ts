@@ -72,6 +72,33 @@ export class PartsCatalogService {
     return out;
   }
 
+  /** First leaf group (no children) of a normalized tree, depth-first. */
+  private firstLeafId(nodes: GroupNodeDto[]): string | undefined {
+    for (const n of nodes) {
+      if (!n.children?.length) return n.id;
+      const leaf = this.firstLeafId(n.children);
+      if (leaf) return leaf;
+    }
+    return undefined;
+  }
+
+  /**
+   * PartsIndex requires a concrete GroupID on /entities and /params — a request
+   * without one returns 400. When the caller hasn't narrowed to a group yet,
+   * fall back to the first leaf group of the category so the view isn't empty.
+   * Returns the ctx unchanged when a groupId is already set, or when the
+   * category has no drill-down groups at all (caller decides what to render).
+   */
+  private async ensureGroupId(
+    catalogId: string,
+    ctx: CatalogQueryContext,
+  ): Promise<CatalogQueryContext> {
+    if (ctx.groupId) return ctx;
+    const groups = await this.groups(catalogId, ctx.lang);
+    const leaf = this.firstLeafId(groups);
+    return leaf ? { ...ctx, groupId: leaf } : ctx;
+  }
+
   async listCategories(lang?: string): Promise<CategoryDto[]> {
     const res = await this.get<{ list?: any[] }>('/catalogs', { lang }, CATALOG_TTL.REFERENCE_MS);
     return (res.list ?? []).map((c) => ({
@@ -105,9 +132,10 @@ export class PartsCatalogService {
   }
 
   async params(catalogId: string, ctx: CatalogQueryContext): Promise<FacetDto[]> {
+    const scoped = await this.ensureGroupId(catalogId, ctx);
     const res = await this.get<{ list?: any[] }>(
       `/catalogs/${catalogId}/params`,
-      this.scopeParams(ctx),
+      this.scopeParams(scoped),
       CATALOG_TTL.DYNAMIC_MS,
     );
     return (res.list ?? []).map((p) => ({
@@ -130,9 +158,19 @@ export class PartsCatalogService {
     page = 1,
     limit = 25,
   ): Promise<CatalogProductsDto> {
+    const scoped = await this.ensureGroupId(catalogId, ctx);
+    if (!scoped.groupId) {
+      // Category has no drill-down groups at all → nothing to list. Avoid
+      // hitting the provider (it would 400 on a missing GroupID).
+      return {
+        limit,
+        page: { prev: null, current: page, next: null },
+        items: [],
+      };
+    }
     const res = await this.get<any>(
       `/catalogs/${catalogId}/entities`,
-      { ...this.scopeParams(ctx), page, limit },
+      { ...this.scopeParams(scoped), page, limit },
       CATALOG_TTL.DYNAMIC_MS,
     );
     const pageInfo = res?.pagination?.page ?? {};

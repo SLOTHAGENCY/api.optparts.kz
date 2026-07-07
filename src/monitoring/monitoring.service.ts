@@ -68,6 +68,9 @@ export class MonitoringService {
       .addSelect('COALESCE(SUM(log.suppliersQueried), 0)', 'queried')
       .addSelect('COALESCE(SUM(log.suppliersFailed), 0)', 'failed')
       .where('log.createdAt >= :since', { since })
+      // Supplier-health panel: count only supplier (article) searches; VIN lookups
+      // never touch suppliers and would otherwise inflate searchCount vs suppliersQueried.
+      .andWhere("log.queryType = 'article'")
       .getRawOne<{ cnt: string; queried: string; failed: string }>();
 
     const searchCount = Number(raw?.cnt ?? 0);

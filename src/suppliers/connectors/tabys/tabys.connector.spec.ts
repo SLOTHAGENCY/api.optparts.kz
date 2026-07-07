@@ -64,6 +64,30 @@ describe('TabysConnector.mapOffers', () => {
     expect(analog.multiplicity).toBe(1); // default when minPackSize missing
   });
 
+  it('skips phantom zero-price offers but keeps priced back-order (amount 0) offers', () => {
+    const data = {
+      items: [
+        {
+          productId: 'p-3',
+          productCode: '3623',
+          brandName: 'NGK',
+          productName: 'Spark plug',
+          offeringBlockType: 'RequestedProduct',
+          offers: [
+            // Tabys home-warehouse placeholder: no price, no stock — not orderable.
+            { warehouseId: 'wh-phantom', price: 0, amount: 0, deliveryInfo: null },
+            // Real back-order line: priced but out of stock — must be kept.
+            { warehouseId: 'wh-real', price: 1674, amount: 0, deliveryInfo: { workDays: 10 } },
+          ],
+        },
+      ],
+    };
+    const offers = connector.mapOffers(data, '3623', 'NGK');
+    expect(offers).toHaveLength(1);
+    expect(offers[0].costPrice).toBe(1674);
+    expect(offers[0].warehouseId).toBe('wh-real');
+  });
+
   it('accepts a bare array response and empty offers', () => {
     expect(connector.mapOffers([], 'X', 'Y')).toEqual([]);
     expect(connector.mapOffers({ items: [{ productCode: 'A', offers: [] }] }, 'A')).toEqual([]);

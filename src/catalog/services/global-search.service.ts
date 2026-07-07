@@ -39,6 +39,12 @@ export class GlobalSearchService {
 
     if (mode === 'vin') {
       base.vin = await this.safe('vin', () => this.oem.carsByVin(q, opts.catalogs, opts.lang), []);
+      this.searchService.logVinSearch({
+        userId: opts.userId,
+        vin: q,
+        catalogs: opts.catalogs,
+        matchedCars: base.vin.length,
+      });
       return base;
     }
 

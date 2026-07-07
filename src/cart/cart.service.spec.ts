@@ -184,19 +184,49 @@ describe('CartService', () => {
     expect(res.items[0].currentPrice).toBe(120);
   });
 
-  it('getCart marks available=false when stock is below requested quantity', async () => {
+  it('getCart clamps quantity to stock (still available) when supplier has fewer than requested', async () => {
     const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
       makeOffer({ costPrice: 100, count: 1, warehouseId: 'W1' }),
     ]);
-    const { service } = makeService({
+    const { service, itemRepo } = makeService({
       items: [makeItem({ quantity: 5 })],
       connector,
       applyMarkup: async (c) => Math.round(c * 1.2), // 120, equals priceAtAdd
     });
     const res = await service.getCart('u1');
-    expect(res.items[0].available).toBe(false);
-    expect(res.items[0].currentPrice).toBe(120);
+    expect(res.items[0].available).toBe(true);
+    expect(res.items[0].quantity).toBe(1);
+    expect(res.items[0].quantityAdjusted).toBe(true);
+    expect(res.hasChanges).toBe(true);
     expect(res.items[0].priceChanged).toBe(false);
+    expect(itemRepo.save).toHaveBeenCalled(); // reduced quantity is persisted
+  });
+
+  it('getCart rounds a clamped quantity down to the offer multiplicity', async () => {
+    const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
+      makeOffer({ count: 3, multiplicity: 2, warehouseId: 'W1' }),
+    ]);
+    const { service } = makeService({
+      items: [makeItem({ quantity: 10, raw: { offerId: 'snap', multiplicity: 2 } })],
+      connector,
+    });
+    const res = await service.getCart('u1');
+    expect(res.items[0].available).toBe(true);
+    expect(res.items[0].quantity).toBe(2); // floor(3/2)*2
+    expect(res.items[0].quantityAdjusted).toBe(true);
+  });
+
+  it('getCart marks available=false when the offer is completely out of stock', async () => {
+    const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
+      makeOffer({ count: 0, warehouseId: 'W1' }),
+    ]);
+    const { service } = makeService({
+      items: [makeItem({ quantity: 2 })],
+      connector,
+    });
+    const res = await service.getCart('u1');
+    expect(res.items[0].available).toBe(false);
+    expect(res.items[0].quantityAdjusted).toBe(false);
   });
 
   it('rechecks multiple items (parallel) and re-checks each one', async () => {

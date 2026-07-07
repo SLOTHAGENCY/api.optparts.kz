@@ -118,8 +118,27 @@ describe('SearchService.search', () => {
     const { service, repo } = makeService([c]);
     await service.search('A1', 'B', 'user-123');
     expect(repo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'user-123', article: 'A1', brand: 'B' }),
+      expect.objectContaining({ userId: 'user-123', article: 'A1', brand: 'B', queryType: 'article' }),
     );
+  });
+
+  it('logVinSearch records a vin row: VIN in article, cars in totalResults, no suppliers', () => {
+    const { service, repo } = makeService([]);
+    service.logVinSearch({
+      userId: 'user-7',
+      vin: 'WBAAV33403FD12345',
+      catalogs: 'bmw',
+      matchedCars: 3,
+    });
+    expect(repo.save).toHaveBeenCalledWith({
+      userId: 'user-7',
+      queryType: 'vin',
+      article: 'WBAAV33403FD12345',
+      brand: 'bmw',
+      totalResults: 3,
+      suppliersQueried: 0,
+      suppliersFailed: 0,
+    });
   });
 
   it('still returns results when the search_log write rejects', async () => {

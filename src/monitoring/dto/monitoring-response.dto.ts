@@ -23,7 +23,7 @@ export class MonitoringStatsDto {
   @ApiProperty({ example: 24, description: 'Окно агрегации в часах' })
   windowHours: number;
 
-  @ApiProperty({ example: 128, description: 'Сколько поисков было за окно (строк в search_log)' })
+  @ApiProperty({ example: 128, description: 'Сколько поисков по артикулу было за окно (search_log, queryType=article)' })
   searchCount: number;
 
   @ApiProperty({ example: 250, description: 'Суммарно опрошено поставщиков за окно (SUM suppliersQueried)' })

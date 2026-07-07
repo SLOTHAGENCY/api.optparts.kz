@@ -17,7 +17,7 @@ describe('classifyQuery', () => {
 function services(over: any = {}) {
   return {
     oem: { carsByVin: jest.fn(async () => [{ catalogId: 'bmw', carId: 'c1' }]) },
-    search: { search: jest.fn(async () => ({ query: {}, exact: [], analogs: [] })) },
+    search: { search: jest.fn(async () => ({ query: {}, exact: [], analogs: [] })), logVinSearch: jest.fn() },
     parts: { brandsByCode: jest.fn(async () => [{ id: '1', name: 'Bosch' }]) },
     catalog: { listCategories: jest.fn(async () => [{ id: 'lamps', name: 'Лампы', image: null }, { id: 'oils', name: 'Масла', image: null }]) },
     ...over,
@@ -37,6 +37,17 @@ describe('GlobalSearchService', () => {
     expect(res.vin).toHaveLength(1);
     expect(s.oem.carsByVin).toHaveBeenCalledWith('WBAAV33403FD12345', 'bmw', undefined);
     expect(s.search.search).not.toHaveBeenCalled();
+  });
+
+  it('logs the VIN search with the matched-car count', async () => {
+    const { svc, s } = make();
+    await svc.search('WBAAV33403FD12345', { catalogs: 'bmw', userId: 'user-9' });
+    expect(s.search.logVinSearch).toHaveBeenCalledWith({
+      userId: 'user-9',
+      vin: 'WBAAV33403FD12345',
+      catalogs: 'bmw',
+      matchedCars: 1,
+    });
   });
 
   it('routes article queries to SearchService + PartsIndex brands', async () => {

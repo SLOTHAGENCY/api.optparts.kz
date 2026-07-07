@@ -5,6 +5,7 @@ function makeRepo(raw: { cnt: string; queried: string; failed: string }) {
     select: jest.fn(() => qb),
     addSelect: jest.fn(() => qb),
     where: jest.fn(() => qb),
+    andWhere: jest.fn(() => qb),
     getRawOne: jest.fn(async () => raw),
   };
   return { createQueryBuilder: jest.fn(() => qb) } as any;

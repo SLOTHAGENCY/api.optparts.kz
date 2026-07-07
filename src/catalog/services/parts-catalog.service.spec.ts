@@ -7,6 +7,13 @@ function fakeClient(data: any) {
   return { request: jest.fn(async () => ({ data, headers: {} })) } as any;
 }
 
+/** Routes responses by request path so multi-step flows (groups → entities) work. */
+function routingClient(byPath: Record<string, any>) {
+  return {
+    request: jest.fn(async (req: any) => ({ data: byPath[req.path], headers: {} })),
+  } as any;
+}
+
 describe('PartsCatalogService', () => {
   it('listCategories maps id/name/image', async () => {
     const svc = new PartsCatalogService(fakeClient({ list: [{ id: 'lamps', name: 'Лампы', image: 'x.png' }] }), fakeCache());
@@ -47,6 +54,43 @@ describe('PartsCatalogService', () => {
     expect(client.request.mock.calls[0][0].query).toMatchObject({ groupId: 'g1', page: 2, limit: 25 });
     expect(out.page).toEqual({ prev: null, current: 2, next: 3 });
     expect(out.items[0]).toEqual({ id: '7', code: 'P7', name: 'Масло', originalName: 'X', brand: { id: '9', name: 'Lukoil' }, images: ['i.jpg'] });
+  });
+
+  it('products resolves the first leaf group when groupId is omitted (no 400)', async () => {
+    const client = routingClient({
+      '/catalogs/oils/groups': { id: 1165, name: 'Oils', subgroups: [{ id: 1166, name: 'Engine oil' }, { id: 1167, name: 'Gear oil' }] },
+      '/catalogs/oils/entities': {
+        pagination: { limit: 25, page: { prev: null, current: 1, next: 2 } },
+        list: [{ id: 7, code: 'P7', name: { name: 'Масло' }, brand: { id: 9, name: 'Lukoil' }, images: [] }],
+      },
+    });
+    const svc = new PartsCatalogService(client, fakeCache());
+    const out = await svc.products('oils', {}, 1, 25);
+
+    // First the tree is fetched to find a leaf, then entities with that leaf id.
+    const paths = client.request.mock.calls.map((c: any[]) => c[0].path);
+    expect(paths).toEqual(['/catalogs/oils/groups', '/catalogs/oils/entities']);
+    expect(client.request.mock.calls[1][0].query.groupId).toBe('1166');
+    expect(out.items[0]).toEqual({ id: '7', code: 'P7', name: 'Масло', originalName: null, brand: { id: '9', name: 'Lukoil' }, images: [] });
+  });
+
+  it('products returns empty list when the category has no groups', async () => {
+    const client = routingClient({ '/catalogs/empty/groups': {} });
+    const svc = new PartsCatalogService(client, fakeCache());
+    const out = await svc.products('empty', {}, 1, 25);
+    expect(out.items).toEqual([]);
+    // No entities call attempted → no 400.
+    expect(client.request.mock.calls.map((c: any[]) => c[0].path)).toEqual(['/catalogs/empty/groups']);
+  });
+
+  it('params resolves the first leaf group when groupId is omitted', async () => {
+    const client = routingClient({
+      '/catalogs/oils/groups': { id: 1165, name: 'Oils', subgroups: [{ id: 1166, name: 'Engine oil' }] },
+      '/catalogs/oils/params': { list: [{ id: 120, name: 'Вязкость', type: 'select', values: [{ value: '5W-30' }] }] },
+    });
+    const svc = new PartsCatalogService(client, fakeCache());
+    await svc.params('oils', {});
+    expect(client.request.mock.calls[1][0].query.groupId).toBe('1166');
   });
 
   it('car tree endpoints hit the right paths', async () => {

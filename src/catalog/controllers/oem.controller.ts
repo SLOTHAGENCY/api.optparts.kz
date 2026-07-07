@@ -1,7 +1,10 @@
 import { BadRequestException, Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../auth/decorators/public.decorator';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
+import { User } from '../../users/entities/user.entity';
+import { SearchService } from '../../search/search.service';
 import { OemCatalogService } from '../services/oem-catalog.service';
 import {
   OemCarDto,
@@ -19,7 +22,10 @@ import {
 @Public()
 @UseGuards(OptionalJwtAuthGuard)
 export class OemController {
-  constructor(private readonly oem: OemCatalogService) {}
+  constructor(
+    private readonly oem: OemCatalogService,
+    private readonly searchService: SearchService,
+  ) {}
 
   @Get('catalogs')
   @ApiOperation({ summary: 'Список каталогов (марок) OEM' })
@@ -99,12 +105,22 @@ export class OemController {
   @ApiQuery({ name: 'q', required: true, description: 'VIN или номер кузова' })
   @ApiQuery({ name: 'catalogs', required: false, description: 'Ограничить марками (через запятую)' })
   @ApiOkResponse({ type: [VinCarDto] })
-  vin(
+  async vin(
     @Query('q') q: string,
+    @CurrentUser() user?: User,
     @Query('catalogs') catalogs?: string,
     @Query('lang') lang?: string,
   ): Promise<VinCarDto[]> {
-    return this.oem.carsByVin(this.required(q, 'q'), catalogs?.trim() || undefined, lang);
+    const query = this.required(q, 'q');
+    const normalizedCatalogs = catalogs?.trim() || undefined;
+    const cars = await this.oem.carsByVin(query, normalizedCatalogs, lang);
+    this.searchService.logVinSearch({
+      userId: user?.id,
+      vin: query,
+      catalogs: normalizedCatalogs ?? null,
+      matchedCars: cars.length,
+    });
+    return cars;
   }
 
   @Get('catalogs/:catalogId/groups')

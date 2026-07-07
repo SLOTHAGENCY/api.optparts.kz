@@ -35,6 +35,8 @@ interface RecheckResult {
   currentPrice: number;
   available: boolean;
   priceChanged: boolean;
+  /** true if the line quantity was auto-reduced to the supplier's remaining stock. */
+  quantityAdjusted: boolean;
   raw: Record<string, unknown>;
   warehouseId: string;
   count: number;
@@ -82,6 +84,7 @@ export class CartService {
         currentPrice: r.currentPrice,
         priceChanged: r.priceChanged,
         available: r.available,
+        quantityAdjusted: r.quantityAdjusted,
         quantity: r.item.quantity,
         maxQuantity: r.available ? r.count : 0,
         subtotal,
@@ -89,7 +92,9 @@ export class CartService {
     });
 
     const totalAmount = items.reduce((sum, i) => sum + i.subtotal, 0);
-    const hasChanges = items.some((i) => i.priceChanged || !i.available);
+    const hasChanges = items.some(
+      (i) => i.priceChanged || !i.available || i.quantityAdjusted,
+    );
 
     return { items, totalAmount, hasChanges };
   }
@@ -219,7 +224,8 @@ export class CartService {
       const offer = itemKey
         ? offers.find((o) => o.raw?.offerKey === itemKey)
         : offers.find((o) => o.warehouseId === item.warehouseId);
-      if (!offer) return this.unavailable(item);
+      // Offer disappeared or is fully out of stock => can't be ordered.
+      if (!offer || offer.count <= 0) return this.unavailable(item);
 
       const currentPrice = await this.pricing.applyMarkup(
         offer.costPrice,
@@ -228,13 +234,29 @@ export class CartService {
         offer.brand,
       );
       const priceAtAdd = Number(item.priceAtAdd);
+
+      // Supplier has fewer than requested => don't block the line, just reduce the
+      // quantity to what's in stock (rounded down to the offer's multiplicity).
+      let quantityAdjusted = false;
+      if (offer.count < item.quantity) {
+        const mult = Number(offer.multiplicity) || 1;
+        const clamped =
+          mult > 1 ? Math.floor(offer.count / mult) * mult : offer.count;
+        // Can't even make one whole multiple => treat as unavailable.
+        if (clamped <= 0) return this.unavailable(item);
+        item.quantity = clamped;
+        await this.itemRepo.save(item);
+        quantityAdjusted = true;
+      }
+
       return {
         item,
         supplierName: connector.name,
         costPrice: offer.costPrice,
         currentPrice,
-        available: offer.count >= item.quantity,
+        available: true,
         priceChanged: currentPrice !== priceAtAdd,
+        quantityAdjusted,
         raw: offer.raw,
         warehouseId: offer.warehouseId,
         count: offer.count,
@@ -254,6 +276,7 @@ export class CartService {
       currentPrice: Number(item.priceAtAdd),
       available: false,
       priceChanged: false,
+      quantityAdjusted: false,
       raw: item.raw ?? {},
       warehouseId: item.warehouseId,
       count: 0,

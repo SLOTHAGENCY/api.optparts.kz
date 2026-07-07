@@ -15,6 +15,8 @@ export class CartItemDto {
   priceChanged: boolean;
   @ApiProperty({ description: 'false, если поставщик недоступен или предложение исчезло', example: true })
   available: boolean;
+  @ApiProperty({ description: 'true, если количество было автоматически уменьшено до остатка у поставщика', example: false })
+  quantityAdjusted: boolean;
   @ApiProperty({ description: 'Количество в корзине', example: 2 }) quantity: number;
   @ApiProperty({ description: 'Доступный остаток на складе (0, если нет в наличии)', example: 10 })
   maxQuantity: number;
