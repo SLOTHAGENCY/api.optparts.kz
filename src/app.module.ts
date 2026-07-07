@@ -38,6 +38,7 @@ import { BrandMarkup } from './pricing/entities/brand-markup.entity';
 import { CommonModule } from './common/common.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { CatalogCache } from './catalog/cache/catalog-cache.entity';
+import { AdminStatsModule } from './admin-stats/admin-stats.module';
 
 @Module({
   imports: [
@@ -83,6 +84,7 @@ import { CatalogCache } from './catalog/cache/catalog-cache.entity';
     SearchModule,
     SettingsModule,
     CatalogModule,
+    AdminStatsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
