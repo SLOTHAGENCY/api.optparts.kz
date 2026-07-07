@@ -18,10 +18,17 @@ function services(over: any = {}) {
   return {
     oem: { carsByVin: jest.fn(async () => [{ catalogId: 'bmw', carId: 'c1' }]) },
     search: { search: jest.fn(async () => ({ query: {}, exact: [], analogs: [] })), logVinSearch: jest.fn() },
-    parts: { brandsByCode: jest.fn(async () => [{ id: '1', name: 'Bosch' }]) },
+    parts: {
+      brandsByCode: jest.fn(async () => [{ id: '1', name: 'Bosch' }]),
+      entity: jest.fn(async () => ({ images: ['https://img.example.com/part.jpg'] })),
+    },
     catalog: { listCategories: jest.fn(async () => [{ id: 'lamps', name: 'Лампы', image: null }, { id: 'oils', name: 'Масла', image: null }]) },
     ...over,
   };
+}
+
+function group(article: string, brand: string) {
+  return { article, brand, name: 'Part', offers: [] };
 }
 
 function make(over: any = {}) {
@@ -68,9 +75,84 @@ describe('GlobalSearchService', () => {
   });
 
   it('degrades gracefully when a provider throws', async () => {
-    const { svc } = make({ parts: { brandsByCode: jest.fn(async () => { throw new Error('quota'); }) } });
+    const { svc } = make({
+      parts: {
+        brandsByCode: jest.fn(async () => { throw new Error('quota'); }),
+        entity: jest.fn(async () => null),
+      },
+    });
     const res = await svc.search('0451103316');
     expect(res.article?.brands).toEqual([]);
     expect(res.article?.search).toBeDefined();
+  });
+});
+
+describe('GlobalSearchService image enrichment', () => {
+  it('attaches images[0] to exact groups only, leaving analogs untouched', async () => {
+    const exact = [group('0451103316', 'BOSCH')];
+    const analogs = [group('123456', 'MANN')];
+    const { svc, s } = make({
+      search: { search: jest.fn(async () => ({ query: {}, exact, analogs })) },
+    });
+    const res = await svc.search('0451103316');
+    expect(s.parts.entity).toHaveBeenCalledTimes(1);
+    expect(s.parts.entity).toHaveBeenCalledWith('0451103316', 'BOSCH');
+    expect(res.article?.search.exact[0].image).toBe('https://img.example.com/part.jpg');
+    expect(res.article?.search.analogs[0].image).toBeUndefined();
+  });
+
+  it('sets image=null when entity() resolves without images', async () => {
+    const exact = [group('AAA1', 'X')];
+    const { svc } = make({
+      search: { search: jest.fn(async () => ({ query: {}, exact, analogs: [] })) },
+      parts: { brandsByCode: jest.fn(async () => []), entity: jest.fn(async () => ({ images: [] })) },
+    });
+    const res = await svc.search('AAA1');
+    expect(res.article?.search.exact[0].image).toBeNull();
+  });
+
+  it('sets image=null and still returns the full response when entity() throws', async () => {
+    const exact = [group('AAA1', 'X'), group('BBB2', 'Y')];
+    const { svc } = make({
+      search: { search: jest.fn(async () => ({ query: {}, exact, analogs: [] })) },
+      parts: {
+        brandsByCode: jest.fn(async () => []),
+        entity: jest
+          .fn()
+          .mockRejectedValueOnce(new Error('timeout'))
+          .mockResolvedValueOnce({ images: ['https://img.example.com/b.jpg'] }),
+      },
+    });
+    const res = await svc.search('AAA1');
+    expect(res.article?.search.exact[0].image).toBeNull();
+    expect(res.article?.search.exact[1].image).toBe('https://img.example.com/b.jpg');
+    expect(res.article?.search.exact).toHaveLength(2);
+  });
+
+  it('sets image=null when entity() resolves null', async () => {
+    const exact = [group('AAA1', 'X')];
+    const { svc } = make({
+      search: { search: jest.fn(async () => ({ query: {}, exact, analogs: [] })) },
+      parts: { brandsByCode: jest.fn(async () => []), entity: jest.fn(async () => null) },
+    });
+    const res = await svc.search('AAA1');
+    expect(res.article?.search.exact[0].image).toBeNull();
+  });
+
+  it('caps enrichment at MAX_ENRICH (5) exact groups', async () => {
+    const exact = Array.from({ length: 7 }, (_, i) => group(`ART${i}`, 'BOSCH'));
+    const entity = jest.fn(async () => ({ images: ['https://img.example.com/x.jpg'] }));
+    const { svc } = make({
+      search: { search: jest.fn(async () => ({ query: {}, exact, analogs: [] })) },
+      parts: { brandsByCode: jest.fn(async () => []), entity },
+    });
+    const res = await svc.search('ART0');
+    expect(entity).toHaveBeenCalledTimes(5);
+    for (let i = 0; i < 5; i++) {
+      expect(res.article?.search.exact[i].image).toBe('https://img.example.com/x.jpg');
+    }
+    for (let i = 5; i < 7; i++) {
+      expect(res.article?.search.exact[i].image).toBeUndefined();
+    }
   });
 });

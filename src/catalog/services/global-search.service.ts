@@ -4,6 +4,10 @@ import { PartsIndexService } from './parts-index.service';
 import { PartsCatalogService } from './parts-catalog.service';
 import { SearchService } from '../../search/search.service';
 import { GlobalSearchResultDto, SearchMode } from '../dto/global-search.dto';
+import { SearchGroupDto } from '../../search/dto/search-response.dto';
+
+/** Max number of exact groups enriched with a part image per search (best-effort, quota-bound). */
+const MAX_ENRICH = 5;
 
 /** Classify a raw query into the subsystem that should handle it. */
 export function classifyQuery(raw: string): SearchMode {
@@ -57,6 +61,7 @@ export class GlobalSearchService {
           analogs: [],
         }),
       ]);
+      await this.enrichExactImages(search.exact);
       base.article = { brands, search };
       return base;
     }
@@ -65,6 +70,24 @@ export class GlobalSearchService {
     const needle = q.toLowerCase();
     base.name = { categories: categories.filter((c) => c.name.toLowerCase().includes(needle)) };
     return base;
+  }
+
+  /**
+   * Best-effort part-image enrichment for exact match groups only (analogs can number in the
+   * thousands and PartsIndex quota is limited). Capped at MAX_ENRICH groups; any failure/null
+   * for a given group just leaves that group's image as null — never throws out of search.
+   */
+  private async enrichExactImages(exact: SearchGroupDto[]): Promise<void> {
+    const targets = exact.slice(0, MAX_ENRICH);
+    if (exact.length > MAX_ENRICH) {
+      this.logger.warn(`Image enrichment capped at ${MAX_ENRICH} exact groups (got ${exact.length})`);
+    }
+    const results = await Promise.allSettled(
+      targets.map((g) => this.parts.entity(g.article, g.brand)),
+    );
+    results.forEach((r, i) => {
+      targets[i].image = r.status === 'fulfilled' ? (r.value?.images?.[0] ?? null) : null;
+    });
   }
 
   private async safe<T>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> {

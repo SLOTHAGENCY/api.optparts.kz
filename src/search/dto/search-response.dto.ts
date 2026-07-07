@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class OfferDto {
   @ApiProperty({ description: 'Уникальный идентификатор предложения (служебный код, base64url)' })
@@ -47,6 +47,15 @@ export class SearchGroupDto {
 
   @ApiProperty({ description: 'Предложения от поставщиков по этому товару', type: [OfferDto] })
   offers: OfferDto[];
+
+  @ApiPropertyOptional({
+    description:
+      'Картинка детали (только у exact-групп, best-effort из PartsIndex). ' +
+      'Отсутствует/null, если картинки нет или обогащение не удалось.',
+    nullable: true,
+    example: 'https://img.parts-index.com/parts/0451103316.jpg',
+  })
+  image?: string | null;
 }
 
 export class SearchQueryEchoDto {
