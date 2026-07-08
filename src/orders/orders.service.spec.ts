@@ -406,6 +406,123 @@ describe('OrdersService manager controls', () => {
   });
 });
 
+describe('OrdersService.pollActiveSupplierStatuses', () => {
+  function makePollDeps(
+    subs: any[],
+    connectorByCode: Record<string, MockConnector>,
+  ) {
+    const supplierOrderRepo = {
+      find: jest.fn(async () => subs),
+      save: jest.fn(async (s: any) => s),
+    };
+    const orderRepo = {
+      findOne: jest.fn(async ({ where }: any) => ({
+        id: where.id,
+        supplierOrders: [],
+        status: OrderStatus.PLACED,
+      })),
+      save: jest.fn(async (o: any) => o),
+    };
+    const registry = {
+      getByCode: jest.fn(async (code: string) => connectorByCode[code]),
+    };
+    const service = new OrdersService(
+      orderRepo as any,
+      supplierOrderRepo as any,
+      { getCheckoutItems: jest.fn(), clearCart: jest.fn() } as any,
+      registry as any,
+      { recordOrder: jest.fn() } as any,
+      { findByCode: jest.fn() } as any,
+      { gate: jest.fn() } as any,
+      { findOne: jest.fn() } as any,
+      { getOrderMode: jest.fn() } as any,
+    );
+    return { service, supplierOrderRepo, orderRepo, registry };
+  }
+
+  it('persists changed statuses and re-aggregates only the orders that moved', async () => {
+    const subs = [
+      {
+        id: 'sub-1',
+        orderId: 'order-1',
+        supplierCode: 'mock',
+        externalOrderId: 'EXT-1',
+        status: 'PLACED',
+      },
+      {
+        id: 'sub-2',
+        orderId: 'order-2',
+        supplierCode: 'rossko',
+        externalOrderId: 'EXT-2',
+        status: 'CONFIRMED',
+      },
+    ];
+    const { service, supplierOrderRepo, orderRepo } = makePollDeps(subs, {
+      mock: new MockConnector('mock').setStatus('SHIPPED'),
+      rossko: new MockConnector('rossko').setStatus('CONFIRMED'), // unchanged
+    });
+    const res = await service.pollActiveSupplierStatuses();
+    expect(res).toEqual({ checked: 2, updated: 1 });
+    expect(subs[0].status).toBe('SHIPPED');
+    expect(subs[1].status).toBe('CONFIRMED');
+    expect(supplierOrderRepo.save).toHaveBeenCalledTimes(1);
+    // Only order-1 moved, so only it is re-aggregated.
+    expect(orderRepo.findOne).toHaveBeenCalledWith({ where: { id: 'order-1' } });
+    expect(orderRepo.findOne).not.toHaveBeenCalledWith({
+      where: { id: 'order-2' },
+    });
+  });
+
+  it('skips sub-orders with no externalOrderId', async () => {
+    const subs = [
+      {
+        id: 'sub-1',
+        orderId: 'order-1',
+        supplierCode: 'mock',
+        externalOrderId: null,
+        status: 'PLACED',
+      },
+    ];
+    const { service, registry, supplierOrderRepo } = makePollDeps(subs, {
+      mock: new MockConnector('mock').setStatus('SHIPPED'),
+    });
+    const res = await service.pollActiveSupplierStatuses();
+    expect(res).toEqual({ checked: 1, updated: 0 });
+    expect(registry.getByCode).not.toHaveBeenCalled();
+    expect(supplierOrderRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('one failing supplier does not abort the batch', async () => {
+    const failing = new MockConnector('rossko');
+    jest
+      .spyOn(failing, 'getOrderStatus')
+      .mockRejectedValue(new Error('supplier down'));
+    const subs = [
+      {
+        id: 'sub-1',
+        orderId: 'order-1',
+        supplierCode: 'rossko',
+        externalOrderId: 'EXT-1',
+        status: 'PLACED',
+      },
+      {
+        id: 'sub-2',
+        orderId: 'order-2',
+        supplierCode: 'mock',
+        externalOrderId: 'EXT-2',
+        status: 'PLACED',
+      },
+    ];
+    const { service } = makePollDeps(subs, {
+      rossko: failing,
+      mock: new MockConnector('mock').setStatus('DELIVERED'),
+    });
+    const res = await service.pollActiveSupplierStatuses();
+    expect(res).toEqual({ checked: 2, updated: 1 });
+    expect(subs[1].status).toBe('DELIVERED');
+  });
+});
+
 describe('OrdersService cost-price exposure', () => {
   it('public order view strips costPrice from items; manager view keeps it', () => {
     const { service } = makeDeps([], {});
