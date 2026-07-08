@@ -363,6 +363,7 @@ describe('CartService', () => {
       quantity: 2,
       available: true,
       priceChanged: true,
+      deliveryDays: 3,
     });
   });
 
