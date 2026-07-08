@@ -88,6 +88,29 @@ describe('TabysConnector.mapOffers', () => {
     expect(offers[0].warehouseId).toBe('wh-real');
   });
 
+  it('falls back to the price-template sourceId when a marketplace offer has no warehouseId', () => {
+    // Tabys marketplace lines (sourceType 1) arrive with a priceTemplateId but no
+    // warehouseId. warehouseId must still be non-empty and unique per offer, else
+    // the cart DTO rejects it and every such offer collides on one offerId.
+    const data = {
+      items: [
+        {
+          productId: 'p-9',
+          productCode: '0451103316',
+          brandName: 'BOSCH',
+          productName: 'Oil Filter',
+          offeringBlockType: 'RequestedProduct',
+          offers: [
+            { price: 5200, amount: 3, deliveryInfo: { workDays: 4 }, priceTemplateId: 'pt-A' },
+            { price: 5300, amount: 1, deliveryInfo: { workDays: 6 }, priceTemplateId: 'pt-B' },
+          ],
+        },
+      ],
+    };
+    const offers = connector.mapOffers(data, '0451103316', 'BOSCH');
+    expect(offers.map((o) => o.warehouseId)).toEqual(['pt-A', 'pt-B']);
+  });
+
   it('accepts a bare array response and empty offers', () => {
     expect(connector.mapOffers([], 'X', 'Y')).toEqual([]);
     expect(connector.mapOffers({ items: [{ productCode: 'A', offers: [] }] }, 'A')).toEqual([]);

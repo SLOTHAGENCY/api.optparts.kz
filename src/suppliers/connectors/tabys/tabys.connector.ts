@@ -156,7 +156,10 @@ export class TabysConnector implements SupplierConnector {
           count: this.toNumber(offer?.amount),
           deliveryDays: this.toNumber(offer?.deliveryInfo?.workDays),
           multiplicity: this.toNumber(offer?.minPackSize) || 1,
-          warehouseId: String(warehouseId ?? ''),
+          // Marketplace lines carry a priceTemplateId but no warehouseId. Fall back
+          // to the orderable sourceId so the id stays non-empty and unique per offer
+          // (matches raw.offerKey); an empty id breaks add-to-cart and collides offerIds.
+          warehouseId: String(warehouseId ?? sourceId ?? ''),
           isAnalog,
           // Everything placeOrder needs back.
           raw: {
