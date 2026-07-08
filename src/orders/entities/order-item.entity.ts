@@ -74,6 +74,11 @@ export class OrderItem {
   @Column({ type: 'varchar', length: 100, nullable: true })
   warehouseId: string | null;
 
+  // Delivery lead time (days) from the supplier offer, snapshotted at checkout.
+  // Nullable: legacy product items and orders placed before this field existed.
+  @Column({ type: 'int', nullable: true })
+  deliveryDays: number | null;
+
   @Column({ type: 'jsonb', nullable: true })
   raw: Record<string, unknown> | null;
 

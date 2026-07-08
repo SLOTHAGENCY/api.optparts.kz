@@ -217,6 +217,7 @@ export class OrdersService {
     orderItem.costPrice = item.costPrice;
     orderItem.sellPrice = item.currentPrice;
     orderItem.warehouseId = item.warehouseId;
+    orderItem.deliveryDays = item.deliveryDays ?? null;
     orderItem.raw = item.raw;
     orderItem.quantity = item.quantity;
     orderItem.subtotal = item.currentPrice * item.quantity;

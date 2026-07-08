@@ -18,6 +18,8 @@ export interface CheckoutItem {
   quantity: number;
   available: boolean;
   priceChanged: boolean;
+  /** Live delivery estimate (days); null when the offer couldn't be re-checked. */
+  deliveryDays: number | null;
 }
 
 export interface CartCheckoutContract {
