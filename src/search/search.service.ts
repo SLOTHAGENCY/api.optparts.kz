@@ -384,6 +384,26 @@ export class SearchService {
     });
   }
 
+  /**
+   * Records a name-search into search_log. Fire-and-forget, like article/vin search.
+   * suppliersQueried/Failed are 0 — a name search hits the local name index, not suppliers.
+   */
+  logNameSearch(entry: {
+    userId?: string | null;
+    query: string;
+    results: number;
+  }): void {
+    this.logSearch({
+      userId: entry.userId ?? null,
+      queryType: 'name',
+      article: entry.query,
+      brand: null,
+      totalResults: entry.results,
+      suppliersQueried: 0,
+      suppliersFailed: 0,
+    });
+  }
+
   /** Fire-and-forget: a write failure must never affect the search response. */
   private logSearch(entry: Partial<SearchLog>): void {
     this.searchLogRepo.save(entry).catch((err) =>

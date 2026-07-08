@@ -17,12 +17,17 @@ describe('classifyQuery', () => {
 function services(over: any = {}) {
   return {
     oem: { carsByVin: jest.fn(async () => [{ catalogId: 'bmw', carId: 'c1' }]) },
-    search: { search: jest.fn(async () => ({ query: {}, exact: [], analogs: [] })), logVinSearch: jest.fn() },
+    search: {
+      search: jest.fn(async () => ({ query: {}, exact: [], analogs: [] })),
+      logVinSearch: jest.fn(),
+      logNameSearch: jest.fn(),
+    },
     parts: {
       brandsByCode: jest.fn(async () => [{ id: '1', name: 'Bosch' }]),
       entity: jest.fn(async () => ({ images: ['https://img.example.com/part.jpg'] })),
     },
     catalog: { listCategories: jest.fn(async () => [{ id: 'lamps', name: 'Лампы', image: null }, { id: 'oils', name: 'Масла', image: null }]) },
+    nameIndex: { suggest: jest.fn(() => []) },
     ...over,
   };
 }
@@ -33,7 +38,10 @@ function group(article: string, brand: string) {
 
 function make(over: any = {}) {
   const s = services(over);
-  return { svc: new GlobalSearchService(s.oem as any, s.search as any, s.parts as any, s.catalog as any), s };
+  return {
+    svc: new GlobalSearchService(s.oem as any, s.search as any, s.parts as any, s.catalog as any, s.nameIndex as any),
+    s,
+  };
 }
 
 describe('GlobalSearchService', () => {
@@ -66,8 +74,14 @@ describe('GlobalSearchService', () => {
     expect(res.article?.search).toBeDefined();
   });
 
-  it('routes name queries to filtered categories', async () => {
-    const { svc, s } = make();
+  it('routes name queries through the NameSearchIndex', async () => {
+    const { svc, s } = make({
+      nameIndex: {
+        suggest: jest.fn(() => [
+          { kind: 'category', categoryId: 'oils', groupId: null, name: 'Масла', parentName: null, score: 100 },
+        ]),
+      },
+    });
     const res = await svc.search('масл');
     expect(res.mode).toBe('name');
     expect(s.parts.brandsByCode).not.toHaveBeenCalled();
@@ -154,5 +168,30 @@ describe('GlobalSearchService image enrichment', () => {
     for (let i = 5; i < 7; i++) {
       expect(res.article?.search.exact[i].image).toBeUndefined();
     }
+  });
+});
+
+describe('GlobalSearchService name mode', () => {
+  it('использует NameSearchIndex и логирует name-поиск', async () => {
+    const nameIndex = {
+      suggest: jest.fn().mockReturnValue([
+        { kind: 'category', categoryId: 'ignition', groupId: null, name: 'Свечи зажигания', parentName: null, score: 120 },
+        { kind: 'group', categoryId: 'ignition', groupId: '84', name: 'Свечи накаливания', parentName: 'Зажигание', score: 90 },
+        { kind: 'category', categoryId: 'ignition', groupId: null, name: 'Свечи зажигания', parentName: null, score: 80 },
+      ]),
+    };
+    const searchService = { logNameSearch: jest.fn() };
+    const svc = new GlobalSearchService(
+      {} as any, searchService as any, {} as any, {} as any, nameIndex as any,
+    );
+
+    const res = await svc.search('свеча');
+
+    expect(res.mode).toBe('name');
+    // категории дедуплицированы по id
+    expect(res.name?.categories.map((c) => c.id)).toEqual(['ignition']);
+    expect(searchService.logNameSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ query: 'свеча' }),
+    );
   });
 });

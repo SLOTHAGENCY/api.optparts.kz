@@ -19,13 +19,13 @@ export class SearchLog {
   userId: string | null;
 
   @ApiProperty({
-    description: "Тип поиска: 'article' — по артикулу у поставщиков; 'vin' — подбор авто по VIN/FRAME",
+    description: "Тип поиска: 'article' — по артикулу; 'vin' — подбор авто по VIN/FRAME; 'name' — по названию детали",
     example: 'article',
-    enum: ['article', 'vin'],
+    enum: ['article', 'vin', 'name'],
   })
   @Index()
   @Column({ type: 'varchar', length: 16, default: 'article' })
-  queryType: 'article' | 'vin';
+  queryType: 'article' | 'vin' | 'name';
 
   @ApiProperty({ description: 'Что искали: артикул (для queryType=article) или VIN/FRAME (для queryType=vin)', example: '0451103316' })
   @Index()

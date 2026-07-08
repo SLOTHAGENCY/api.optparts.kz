@@ -3,6 +3,7 @@ import { OemCatalogService } from './oem-catalog.service';
 import { PartsIndexService } from './parts-index.service';
 import { PartsCatalogService } from './parts-catalog.service';
 import { SearchService } from '../../search/search.service';
+import { NameSearchIndex } from '../name-search/name-search-index.service';
 import { GlobalSearchResultDto, SearchMode } from '../dto/global-search.dto';
 import { SearchGroupDto } from '../../search/dto/search-response.dto';
 
@@ -34,6 +35,7 @@ export class GlobalSearchService {
     private readonly searchService: SearchService,
     private readonly parts: PartsIndexService,
     private readonly catalog: PartsCatalogService,
+    private readonly nameIndex: NameSearchIndex,
   ) {}
 
   async search(query: string, opts: GlobalSearchOptions = {}): Promise<GlobalSearchResultDto> {
@@ -66,9 +68,21 @@ export class GlobalSearchService {
       return base;
     }
 
-    const categories = await this.safe('categories', () => this.catalog.listCategories(opts.lang), []);
-    const needle = q.toLowerCase();
-    base.name = { categories: categories.filter((c) => c.name.toLowerCase().includes(needle)) };
+    const suggestions = this.nameIndex.suggest(q, opts.lang, 20);
+    const seen = new Set<string>();
+    const categories = suggestions
+      .filter((s) => {
+        if (seen.has(s.categoryId)) return false;
+        seen.add(s.categoryId);
+        return true;
+      })
+      .map((s) => ({ id: s.categoryId, name: s.parentName ?? s.name, image: null }));
+    base.name = { categories };
+    this.searchService.logNameSearch({
+      userId: opts.userId,
+      query: q,
+      results: suggestions.length,
+    });
     return base;
   }
 
