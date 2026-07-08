@@ -462,7 +462,7 @@ describe('OrdersService.pollActiveSupplierStatuses', () => {
       rossko: new MockConnector('rossko').setStatus('CONFIRMED'), // unchanged
     });
     const res = await service.pollActiveSupplierStatuses();
-    expect(res).toEqual({ checked: 2, updated: 1 });
+    expect(res).toEqual({ checked: 2, updated: 1, failed: 0 });
     expect(subs[0].status).toBe('SHIPPED');
     expect(subs[1].status).toBe('CONFIRMED');
     expect(supplierOrderRepo.save).toHaveBeenCalledTimes(1);
@@ -487,7 +487,7 @@ describe('OrdersService.pollActiveSupplierStatuses', () => {
       mock: new MockConnector('mock').setStatus('SHIPPED'),
     });
     const res = await service.pollActiveSupplierStatuses();
-    expect(res).toEqual({ checked: 1, updated: 0 });
+    expect(res).toEqual({ checked: 1, updated: 0, failed: 0 });
     expect(registry.getByCode).not.toHaveBeenCalled();
     expect(supplierOrderRepo.save).not.toHaveBeenCalled();
   });
@@ -518,7 +518,7 @@ describe('OrdersService.pollActiveSupplierStatuses', () => {
       mock: new MockConnector('mock').setStatus('DELIVERED'),
     });
     const res = await service.pollActiveSupplierStatuses();
-    expect(res).toEqual({ checked: 2, updated: 1 });
+    expect(res).toEqual({ checked: 2, updated: 1, failed: 1 });
     expect(subs[1].status).toBe('DELIVERED');
   });
 });

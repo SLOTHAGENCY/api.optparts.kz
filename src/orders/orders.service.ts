@@ -9,7 +9,7 @@ import {
   NotImplementedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 import {
   DeliveryType,
   DeliveryTypeLabel,
@@ -318,13 +318,22 @@ export class OrdersService {
   async pollActiveSupplierStatuses(): Promise<{
     checked: number;
     updated: number;
+    failed: number;
   }> {
+    // Only sub-orders actually placed at the supplier are pollable — filter out
+    // rows without an externalOrderId in SQL rather than skipping them in the loop.
     const subs = await this.supplierOrderRepo.find({
-      where: { status: In(POLLABLE_SUPPLIER_STATUSES) },
+      where: {
+        status: In(POLLABLE_SUPPLIER_STATUSES),
+        externalOrderId: Not(IsNull()),
+      },
     });
     const touchedOrders = new Set<string>();
     let updated = 0;
+    let failed = 0;
     for (const sub of subs) {
+      // Belt-and-suspenders: the query already excludes null externalOrderId,
+      // but guard here too so a sub is never polled without an order id.
       if (!sub.externalOrderId) continue;
       try {
         const connector = await this.suppliersRegistry.getByCode(
@@ -338,6 +347,7 @@ export class OrdersService {
           updated++;
         }
       } catch (err) {
+        failed++;
         this.logger.warn(
           `status poll failed for sub-order ${sub.id} (${sub.supplierCode}): ${
             err instanceof Error ? err.message : String(err)
@@ -348,7 +358,7 @@ export class OrdersService {
     for (const orderId of touchedOrders) {
       await this.reaggregate(orderId);
     }
-    return { checked: subs.length, updated };
+    return { checked: subs.length, updated, failed };
   }
 
   async retrySupplierOrder(

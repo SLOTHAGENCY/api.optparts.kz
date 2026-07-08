@@ -5,9 +5,10 @@ import { OrdersService } from './orders.service';
 /**
  * Periodically refreshes in-flight supplier sub-order statuses.
  *
- * Schedule is configurable via ORDER_STATUS_POLL_CRON (a cron expression);
- * defaults to every 30 minutes. A re-entrancy guard prevents overlapping runs
- * if a poll outlives its interval (slow suppliers).
+ * Opt-in: the poll only runs when ORDER_STATUS_POLL_ENABLED=true (prod turns it
+ * on), so dev/CI never hammer supplier APIs. Schedule is configurable via
+ * ORDER_STATUS_POLL_CRON (a cron expression); defaults to every 30 minutes. A
+ * re-entrancy guard prevents overlapping runs if a poll outlives its interval.
  */
 @Injectable()
 export class OrderStatusCron {
@@ -20,16 +21,17 @@ export class OrderStatusCron {
     name: 'poll-supplier-statuses',
   })
   async handle(): Promise<void> {
+    if (process.env.ORDER_STATUS_POLL_ENABLED !== 'true') return;
     if (this.running) {
       this.logger.warn('Skipping run: previous status poll still in progress.');
       return;
     }
     this.running = true;
     try {
-      const { checked, updated } =
+      const { checked, updated, failed } =
         await this.orders.pollActiveSupplierStatuses();
       this.logger.log(
-        `Supplier status poll done: checked=${checked} updated=${updated}`,
+        `Supplier status poll done: checked=${checked} updated=${updated} failed=${failed}`,
       );
     } catch (err) {
       this.logger.error(
