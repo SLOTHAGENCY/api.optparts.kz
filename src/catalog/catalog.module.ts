@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CatalogCache } from './cache/catalog-cache.entity';
+import { CatalogNameIndex } from './entities/catalog-name-index.entity';
 import { CatalogCacheService } from './cache/catalog-cache.service';
 import { PartsIndexClient } from './clients/parts-index.client';
 import { PartsCatalogsClient } from './clients/parts-catalogs.client';
@@ -17,7 +18,7 @@ import { GlobalSearchController } from './controllers/global-search.controller';
 import { SearchModule } from '../search/search.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([CatalogCache]), SearchModule],
+  imports: [TypeOrmModule.forFeature([CatalogCache, CatalogNameIndex]), SearchModule],
   controllers: [PartsController, CatalogController, OemController, GlobalSearchController],
   providers: [
     RateLimiterRegistry,
