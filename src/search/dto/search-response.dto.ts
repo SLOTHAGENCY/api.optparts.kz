@@ -58,6 +58,48 @@ export class SearchGroupDto {
   image?: string | null;
 }
 
+export class ActiveSupplierDto {
+  @ApiProperty({ description: 'Код поставщика', example: 'shatem' })
+  code: string;
+
+  @ApiProperty({ description: 'Название поставщика', example: 'SHATE-M' })
+  name: string;
+}
+
+export class SupplierOfferItemDto {
+  @ApiProperty({ description: 'Артикул детали', example: '0451103316' })
+  article: string;
+
+  @ApiProperty({ description: 'Бренд (производитель)', example: 'BOSCH' })
+  brand: string;
+
+  @ApiProperty({ description: 'Название товара', example: 'Oil Filter' })
+  name: string;
+
+  @ApiProperty({ description: 'true, если это аналог (заменитель), а не точное совпадение', example: false })
+  isAnalog: boolean;
+
+  @ApiProperty({ description: 'Предложение поставщика', type: OfferDto })
+  offer: OfferDto;
+}
+
+export class SupplierSearchResponseDto {
+  @ApiProperty({ description: 'Код поставщика', example: 'shatem' })
+  supplierCode: string;
+
+  @ApiProperty({
+    description: 'false, если поставщик не ответил / упал / вышел за таймаут (offers будет пустым)',
+    example: true,
+  })
+  ok: boolean;
+
+  @ApiProperty({
+    description: 'Плоский (несгруппированный) список предложений этого поставщика',
+    type: [SupplierOfferItemDto],
+  })
+  offers: SupplierOfferItemDto[];
+}
+
 export class SearchQueryEchoDto {
   @ApiProperty({ description: 'Артикул, по которому искали', example: '0451103316' })
   article: string;

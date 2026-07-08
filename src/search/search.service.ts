@@ -2,15 +2,18 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SuppliersRegistry } from '../suppliers/suppliers.registry';
+import { SupplierConnector } from '../suppliers/supplier-connector.interface';
 import { PricingService } from '../pricing/pricing.service';
 import { SupplierOffer } from '../suppliers/types';
 import { SearchLog } from './entities/search-log.entity';
 import { encodeOfferId } from './offer-id.util';
 import { normalizeArticle } from './normalize-article.util';
 import {
+  ActiveSupplierDto,
   OfferDto,
   SearchGroupDto,
   SearchResponseDto,
+  SupplierSearchResponseDto,
 } from './dto/search-response.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { HistoryQueryDto, HistoryResponseDto } from './dto/search-history.dto';
@@ -62,28 +65,40 @@ export class SearchService {
       supplierRows.map((s) => [s.code, s.rateLimitRpm]),
     );
 
-    const settled = await Promise.allSettled(
-      connectors.map((connector) =>
-        this.rateLimiter
-          .gate(connector.code, this.rpmFor(connector.code, rateLimitByCode), () =>
-            this.withTimeout(connector.search(article, brand), this.timeoutMs),
-          )
-          .then((offers) => ({ connector, offers })),
-      ),
+    // Each supplier is timed and its own failure is captured, so a slow/failing
+    // partner is named in the logs. NOTE: this aggregate endpoint still blocks on
+    // the slowest supplier (bounded by this.timeoutMs). The per-supplier endpoint
+    // below (searchSupplier) is what lets the frontend fan out and render results
+    // as each partner responds, instead of waiting for the straggler.
+    const settled = await Promise.all(
+      connectors.map(async (connector) => {
+        const r = await this.fetchSupplierOffers(
+          connector,
+          article,
+          brand,
+          this.rpmFor(connector.code, rateLimitByCode),
+        );
+        return { connector, ...r };
+      }),
     );
 
     let suppliersFailed = 0;
     const rawOffers: { offer: SupplierOffer; supplierName: string }[] = [];
     for (const result of settled) {
-      if (result.status === 'fulfilled') {
-        for (const offer of result.value.offers) {
-          rawOffers.push({ offer, supplierName: result.value.connector.name });
-        }
-      } else {
+      if (result.error) {
         suppliersFailed += 1;
         this.logger.warn(
-          `Supplier search failed: ${result.reason?.message ?? result.reason}`,
+          `Supplier '${result.connector.code}' search failed after ${result.ms}ms: ${
+            (result.error as { message?: string })?.message ?? result.error
+          }`,
         );
+        continue;
+      }
+      this.logger.log(
+        `Supplier '${result.connector.code}' returned ${result.offers.length} offers in ${result.ms}ms`,
+      );
+      for (const offer of result.offers) {
+        rawOffers.push({ offer, supplierName: result.connector.name });
       }
     }
     const globalBuffer = await this.settings.getDeliveryBufferDays();
@@ -110,6 +125,95 @@ export class SearchService {
     });
 
     return { query: { article, brand: brand ?? null }, exact, analogs };
+  }
+
+  /** Active suppliers the frontend should fan out to (code + name, no secrets). */
+  async activeSuppliers(): Promise<ActiveSupplierDto[]> {
+    const connectors = await this.registry.getActive();
+    return connectors.map((c) => ({ code: c.code, name: c.name }));
+  }
+
+  /**
+   * One supplier's search, returned FLAT (ungrouped) and normalized (markup +
+   * delivery buffer applied). The frontend calls this once per active supplier
+   * and renders each response as it arrives, so a slow partner never blocks the
+   * others. A partner failure/timeout resolves to `{ ok: false, offers: [] }`
+   * (HTTP 200) so the client can drop it silently.
+   */
+  async searchSupplier(
+    code: string,
+    article: string,
+    brand?: string,
+  ): Promise<SupplierSearchResponseDto> {
+    // Throws NotFound (unknown code) / BadRequest (inactive) — surfaced as-is.
+    const connector = await this.registry.getByCode(code);
+
+    const supplierRows = await this.suppliersService.findAll();
+    const bufferByCode = new Map(
+      supplierRows.map((s) => [s.code, s.deliveryBufferDays]),
+    );
+    const rateLimitByCode = new Map(
+      supplierRows.map((s) => [s.code, s.rateLimitRpm]),
+    );
+
+    const { offers, ms, error } = await this.fetchSupplierOffers(
+      connector,
+      article,
+      brand,
+      this.rpmFor(code, rateLimitByCode),
+    );
+
+    if (error) {
+      this.logger.warn(
+        `Supplier '${code}' search failed after ${ms}ms: ${
+          (error as { message?: string })?.message ?? error
+        }`,
+      );
+      return { supplierCode: code, ok: false, offers: [] };
+    }
+
+    this.logger.log(
+      `Supplier '${code}' returned ${offers.length} offers in ${ms}ms`,
+    );
+    const globalBuffer = await this.settings.getDeliveryBufferDays();
+    const normalized = await Promise.all(
+      offers.map((offer) =>
+        this.toNormalizedOffer(offer, connector.name, bufferByCode, globalBuffer),
+      ),
+    );
+    return {
+      supplierCode: code,
+      ok: true,
+      offers: normalized.map((n) => ({
+        article: n.article,
+        brand: n.brand,
+        name: n.name,
+        isAnalog: n.isAnalog,
+        offer: n.dto,
+      })),
+    };
+  }
+
+  /**
+   * One supplier's raw offers: rate-limited, timed, and bounded by this.timeoutMs.
+   * Never throws — a down / inactive / timed-out partner resolves to empty offers
+   * plus the captured error, so callers decide how to surface it.
+   */
+  private async fetchSupplierOffers(
+    connector: SupplierConnector,
+    article: string,
+    brand: string | undefined,
+    rateLimitRpm: number | null,
+  ): Promise<{ offers: SupplierOffer[]; ms: number; error: unknown }> {
+    const startedAt = Date.now();
+    try {
+      const offers = await this.rateLimiter.gate(connector.code, rateLimitRpm, () =>
+        this.withTimeout(connector.search(article, brand), this.timeoutMs),
+      );
+      return { offers, ms: Date.now() - startedAt, error: null };
+    } catch (error) {
+      return { offers: [], ms: Date.now() - startedAt, error };
+    }
   }
 
   /** Public for unit testing. Filters offers within each group; drops empty groups. */

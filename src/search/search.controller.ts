@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Controller,
   Get,
+  Param,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -9,6 +10,7 @@ import {
   ApiBearerAuth,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
@@ -18,7 +20,11 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { User } from '../users/entities/user.entity';
 import { SearchService } from './search.service';
-import { SearchResponseDto } from './dto/search-response.dto';
+import {
+  ActiveSupplierDto,
+  SearchResponseDto,
+  SupplierSearchResponseDto,
+} from './dto/search-response.dto';
 import { HistoryQueryDto, HistoryResponseDto } from './dto/search-history.dto';
 import { SearchFilterDto } from './dto/search-filter.dto';
 
@@ -63,6 +69,49 @@ export class SearchController {
       brand?.trim() || undefined,
       user?.id,
       filter,
+    );
+  }
+
+  @Public()
+  @Get('suppliers')
+  @ApiOperation({
+    summary: 'Список активных поставщиков для прогрессивного поиска',
+    description:
+      'Возвращает коды и названия активных поставщиков. Фронтенд опрашивает каждого из них ' +
+      'по отдельности (GET /api/search/supplier/:code) и показывает результаты по мере ответа, ' +
+      'чтобы медленный поставщик не блокировал выдачу. Секреты/настройки не возвращаются.',
+  })
+  @ApiOkResponse({ type: [ActiveSupplierDto] })
+  suppliers(): Promise<ActiveSupplierDto[]> {
+    return this.searchService.activeSuppliers();
+  }
+
+  @Public()
+  @Get('supplier/:code')
+  @ApiOperation({
+    summary: 'Живой поиск по артикулу у ОДНОГО поставщика',
+    description:
+      'Опрашивает одного поставщика (по коду) и возвращает его предложения плоским списком ' +
+      '(без группировки) — цены уже с наценкой. Используется фронтендом для прогрессивной ' +
+      'выдачи: каждый поставщик запрашивается параллельно и рендерится, как только ответил. ' +
+      'Если поставщик не ответил/упал/вышел за таймаут — ok=false и пустой offers (HTTP 200).',
+  })
+  @ApiParam({ name: 'code', example: 'shatem', description: 'Код поставщика' })
+  @ApiQuery({ name: 'article', required: true, example: '0451103316' })
+  @ApiQuery({ name: 'brand', required: false, example: 'BOSCH' })
+  @ApiOkResponse({ type: SupplierSearchResponseDto })
+  async searchSupplier(
+    @Param('code') code: string,
+    @Query('article') article: string,
+    @Query('brand') brand: string | undefined,
+  ): Promise<SupplierSearchResponseDto> {
+    if (!article || !article.trim()) {
+      throw new BadRequestException('Query parameter "article" is required.');
+    }
+    return this.searchService.searchSupplier(
+      code,
+      article.trim(),
+      brand?.trim() || undefined,
     );
   }
 

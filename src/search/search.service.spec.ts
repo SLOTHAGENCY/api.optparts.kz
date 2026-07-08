@@ -22,7 +22,14 @@ function offer(over: Partial<SupplierOffer>): SupplierOffer {
 }
 
 function makeService(connectors: any[], saveImpl?: jest.Mock) {
-  const registry = { getActive: jest.fn(async () => connectors) };
+  const registry = {
+    getActive: jest.fn(async () => connectors),
+    getByCode: jest.fn(async (code: string) => {
+      const c = connectors.find((x) => x.code === code);
+      if (!c) throw new Error(`Supplier connector "${code}" is not registered.`);
+      return c;
+    }),
+  };
   // Default markup: +20% rounded.
   const pricing = {
     applyMarkup: jest.fn(async (cost: number) => Math.round(cost * 1.2)),
@@ -215,5 +222,55 @@ describe('SearchService.applyFilters', () => {
 
   it('returns all groups when filter is empty', () => {
     expect(svc.applyFilters(groups(), {})).toHaveLength(2);
+  });
+});
+
+describe('SearchService.searchSupplier', () => {
+  it('returns one supplier flat, normalized (markup applied), ok=true', async () => {
+    const c = new MockConnector('mock', 'Mock').setOffers([
+      offer({ warehouseId: 'w1', costPrice: 1000, isAnalog: false }),
+      offer({ warehouseId: 'w2', costPrice: 2000, isAnalog: true }),
+    ]);
+    const { service } = makeService([c]);
+    const res = await service.searchSupplier('mock', 'A1', 'B');
+    expect(res.supplierCode).toBe('mock');
+    expect(res.ok).toBe(true);
+    // Flat (not grouped): two offer items, markup +20% applied to sellPrice.
+    expect(res.offers).toHaveLength(2);
+    expect(res.offers[0]).toMatchObject({
+      article: 'A1',
+      brand: 'B',
+      isAnalog: false,
+      offer: { supplierCode: 'mock', supplierName: 'Mock', sellPrice: 1200 },
+    });
+    expect(res.offers[1].isAnalog).toBe(true);
+    // Cost price is never exposed.
+    expect(res.offers[0].offer).not.toHaveProperty('costPrice');
+  });
+
+  it('resolves to ok=false with no offers when the supplier fails', async () => {
+    const c = new MockConnector('mock', 'Mock').failWith(new Error('partner down'));
+    const { service } = makeService([c]);
+    const res = await service.searchSupplier('mock', 'A1');
+    expect(res).toEqual({ supplierCode: 'mock', ok: false, offers: [] });
+  });
+
+  it('propagates NotFound for an unknown supplier code', async () => {
+    const { service } = makeService([new MockConnector('mock', 'Mock')]);
+    await expect(service.searchSupplier('nope', 'A1')).rejects.toThrow(/not registered/i);
+  });
+});
+
+describe('SearchService.activeSuppliers', () => {
+  it('returns active suppliers as {code, name} without secrets', async () => {
+    const { service } = makeService([
+      new MockConnector('rossko', 'Rossko'),
+      new MockConnector('shatem', 'SHATE-M'),
+    ]);
+    const res = await service.activeSuppliers();
+    expect(res).toEqual([
+      { code: 'rossko', name: 'Rossko' },
+      { code: 'shatem', name: 'SHATE-M' },
+    ]);
   });
 });
