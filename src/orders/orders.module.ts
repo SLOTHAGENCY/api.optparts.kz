@@ -4,6 +4,7 @@ import { Order } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { SupplierOrder } from './entities/supplier-order.entity';
 import { OrdersService } from './orders.service';
+import { OrderStatusCron } from './order-status.cron';
 import { OrdersController } from './orders.controller';
 import { SuppliersModule } from '../suppliers/suppliers.module';
 import { PartnerProductsModule } from '../partner-products/partner-products.module';
@@ -24,6 +25,7 @@ import { SettingsModule } from '../settings/settings.module';
   ],
   providers: [
     OrdersService,
+    OrderStatusCron,
     // Cart checkout seam (Spec B): backed by the real CartService once merged.
     { provide: CART_CHECKOUT, useExisting: CartService },
   ],

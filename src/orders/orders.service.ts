@@ -4,11 +4,12 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   NotImplementedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import {
   DeliveryType,
   DeliveryTypeLabel,
@@ -50,8 +51,21 @@ export function aggregateOrderStatus(
   return OrderStatus.PLACED;
 }
 
+/**
+ * Sub-order statuses that are "in flight" at the supplier and worth polling.
+ * NEW is not yet placed (no externalOrderId); FAILED is retried, not polled;
+ * DELIVERED / CANCELLED are terminal.
+ */
+export const POLLABLE_SUPPLIER_STATUSES: SupplierOrderStatusValue[] = [
+  'PLACED',
+  'CONFIRMED',
+  'SHIPPED',
+];
+
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     @InjectRepository(Order)
     private readonly orderRepo: Repository<Order>,
@@ -294,6 +308,47 @@ export class OrdersService {
     await this.supplierOrderRepo.save(sub);
     await this.reaggregate(orderId);
     return this.withLabel(await this.loadOrder(orderId));
+  }
+
+  /**
+   * Poll every in-flight sub-order against its supplier and persist any status
+   * change, then re-aggregate the parent orders that moved. Designed to be
+   * driven by a scheduled job; one failing supplier never aborts the batch.
+   */
+  async pollActiveSupplierStatuses(): Promise<{
+    checked: number;
+    updated: number;
+  }> {
+    const subs = await this.supplierOrderRepo.find({
+      where: { status: In(POLLABLE_SUPPLIER_STATUSES) },
+    });
+    const touchedOrders = new Set<string>();
+    let updated = 0;
+    for (const sub of subs) {
+      if (!sub.externalOrderId) continue;
+      try {
+        const connector = await this.suppliersRegistry.getByCode(
+          sub.supplierCode,
+        );
+        const next = await connector.getOrderStatus(sub.externalOrderId);
+        if (next !== sub.status) {
+          sub.status = next;
+          await this.supplierOrderRepo.save(sub);
+          touchedOrders.add(sub.orderId);
+          updated++;
+        }
+      } catch (err) {
+        this.logger.warn(
+          `status poll failed for sub-order ${sub.id} (${sub.supplierCode}): ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    for (const orderId of touchedOrders) {
+      await this.reaggregate(orderId);
+    }
+    return { checked: subs.length, updated };
   }
 
   async retrySupplierOrder(
