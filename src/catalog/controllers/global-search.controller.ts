@@ -66,7 +66,7 @@ export class GlobalSearchController {
   ): SuggestResponseDto {
     const query = (q ?? '').trim();
     if (query.length < 2) return { query, suggestions: [] };
-    const n = Math.min(Number(limit) || 8, 20);
+    const n = Math.max(1, Math.min(Number(limit) || 8, 20));
     return { query, suggestions: this.nameIndex.suggest(query, lang || 'ru', n) };
   }
 }
