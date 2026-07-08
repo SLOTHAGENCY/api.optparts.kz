@@ -11,6 +11,8 @@ import { ProductCardService } from './services/product-card.service';
 import { PartsCatalogService } from './services/parts-catalog.service';
 import { OemCatalogService } from './services/oem-catalog.service';
 import { GlobalSearchService } from './services/global-search.service';
+import { NameSearchIndex } from './name-search/name-search-index.service';
+import { NameIndexBuilder } from './name-search/name-index.builder';
 import { PartsController } from './controllers/parts.controller';
 import { CatalogController } from './controllers/catalog.controller';
 import { OemController } from './controllers/oem.controller';
@@ -30,6 +32,8 @@ import { SearchModule } from '../search/search.module';
     PartsCatalogService,
     OemCatalogService,
     GlobalSearchService,
+    NameSearchIndex,
+    NameIndexBuilder,
   ],
   exports: [
     PartsIndexClient,
@@ -38,6 +42,7 @@ import { SearchModule } from '../search/search.module';
     PartsIndexService,
     PartsCatalogService,
     OemCatalogService,
+    NameSearchIndex,
   ],
 })
 export class CatalogModule {}
