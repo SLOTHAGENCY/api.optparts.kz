@@ -104,8 +104,34 @@ describe('CartService', () => {
     expect(itemRepo.save).toHaveBeenCalled();
   });
 
-  it('addItem dedups by (supplierCode, article, brand, warehouseId) and sums quantity', async () => {
-    const existing = makeItem({ quantity: 1 });
+  it('addItem merges the same offer at the same price and sums quantity', async () => {
+    const existing = makeItem({
+      quantity: 1,
+      priceAtAdd: '120',
+      raw: { offerKey: 'price-A|W1' },
+    });
+    const { service, itemRepo } = makeService({ items: [existing] });
+    await service.addItem('u1', {
+      supplierCode: 'mock',
+      article: 'A1',
+      brand: 'BR',
+      productName: 'Part',
+      sellPrice: 120,
+      costPrice: 100,
+      warehouseId: 'W1',
+      raw: { offerKey: 'price-A|W1' },
+      quantity: 3,
+    });
+    expect(existing.quantity).toBe(4);
+    expect(itemRepo.create).not.toHaveBeenCalled();
+    expect(itemRepo.save).toHaveBeenCalledWith(existing);
+  });
+
+  it('addItem does NOT merge distinct offers sharing a warehouseId (different offerKey)', async () => {
+    // One warehouse can hold several distinct offers (price lines) of the same
+    // article — e.g. SHATE-M returns multiple price lines per locationCode.
+    // They must stay separate lines, keyed by offerKey, not summed.
+    const existing = makeItem({ quantity: 1, raw: { offerKey: 'price-A|W1' } });
     const { service, itemRepo } = makeService({ items: [existing] });
     await service.addItem('u1', {
       supplierCode: 'mock',
@@ -115,12 +141,39 @@ describe('CartService', () => {
       sellPrice: 130,
       costPrice: 110,
       warehouseId: 'W1',
-      raw: {},
+      raw: { offerKey: 'price-B|W1' },
       quantity: 3,
     });
-    expect(existing.quantity).toBe(4);
-    expect(itemRepo.create).not.toHaveBeenCalled();
-    expect(itemRepo.save).toHaveBeenCalledWith(existing);
+    expect(existing.quantity).toBe(1); // untouched
+    expect(itemRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ raw: { offerKey: 'price-B|W1' }, quantity: 3 }),
+    );
+  });
+
+  it('addItem does NOT merge the same offer at a different price (separate line)', async () => {
+    // Same offerKey but a different price (delivery tier / price drift) is a
+    // distinct cart line, per product rule "разная цена — разные строки".
+    const existing = makeItem({
+      quantity: 1,
+      priceAtAdd: '120',
+      raw: { offerKey: 'price-A|W1' },
+    });
+    const { service, itemRepo } = makeService({ items: [existing] });
+    await service.addItem('u1', {
+      supplierCode: 'mock',
+      article: 'A1',
+      brand: 'BR',
+      productName: 'Part',
+      sellPrice: 140,
+      costPrice: 110,
+      warehouseId: 'W1',
+      raw: { offerKey: 'price-A|W1' },
+      quantity: 3,
+    });
+    expect(existing.quantity).toBe(1); // untouched
+    expect(itemRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ priceAtAdd: 140, quantity: 3 }),
+    );
   });
 
   it('getCart marks priceChanged and uses fresh price for subtotal when price rose', async () => {
@@ -229,11 +282,14 @@ describe('CartService', () => {
     expect(res.items[0].quantityAdjusted).toBe(false);
   });
 
-  it('rechecks multiple items (parallel) and re-checks each one', async () => {
+  it('rechecks multiple items and dedups the partner search per (supplier, query)', async () => {
     const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
       makeOffer({ warehouseId: 'W1', costPrice: 100 }),
       makeOffer({ warehouseId: 'W2', costPrice: 200 }),
     ]);
+    const searchSpy = jest.spyOn(connector, 'search');
+    // Two lines share the same (supplier, article, brand) — e.g. two distinct
+    // offers of one article. They must resolve from ONE shared search, not two.
     const items = [
       makeItem({ id: 'i1', warehouseId: 'W1' }),
       makeItem({ id: 'i2', warehouseId: 'W2', priceAtAdd: '240' }),
@@ -244,10 +300,43 @@ describe('CartService', () => {
       applyMarkup: async (c) => Math.round(c * 1.2),
     });
     const res = await service.getCart('u1');
-    expect(registry.getByCode).toHaveBeenCalledTimes(2);
+    expect(searchSpy).toHaveBeenCalledTimes(1);
+    expect(registry.getByCode).toHaveBeenCalledTimes(1);
     expect(res.items).toHaveLength(2);
     expect(res.items.every((i: any) => i.available)).toBe(true);
     expect(res.totalAmount).toBe(120 * 2 + 240 * 2);
+  });
+
+  it('getCart returns items in stable createdAt order regardless of DB row order', async () => {
+    const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
+      makeOffer({ warehouseId: 'W1' }),
+      makeOffer({ warehouseId: 'W2' }),
+      makeOffer({ warehouseId: 'W3' }),
+    ]);
+    // DB hands rows back in heap order (here: shuffled). getCart must reorder by
+    // createdAt so the lines don't reshuffle on reload / quantity change.
+    const items = [
+      makeItem({ id: 'i2', warehouseId: 'W2', createdAt: new Date(2000) }),
+      makeItem({ id: 'i3', warehouseId: 'W3', createdAt: new Date(3000) }),
+      makeItem({ id: 'i1', warehouseId: 'W1', createdAt: new Date(1000) }),
+    ];
+    const { service } = makeService({ items, connector });
+    const res = await service.getCart('u1');
+    expect(res.items.map((i: any) => i.id)).toEqual(['i1', 'i2', 'i3']);
+  });
+
+  it('runs a separate search per distinct article of the same supplier', async () => {
+    const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
+      makeOffer({ warehouseId: 'W1', costPrice: 100 }),
+    ]);
+    const searchSpy = jest.spyOn(connector, 'search');
+    const items = [
+      makeItem({ id: 'i1', article: 'A1', warehouseId: 'W1' }),
+      makeItem({ id: 'i2', article: 'A2', warehouseId: 'W1' }),
+    ];
+    const { service } = makeService({ items, connector });
+    await service.getCart('u1');
+    expect(searchSpy).toHaveBeenCalledTimes(2);
   });
 
   it('getCheckoutItems returns the checkout contract including costPrice and sellPrice', async () => {
@@ -290,13 +379,24 @@ describe('CartService', () => {
     expect(res[0].raw).toEqual({ offerId: 'snap' });
   });
 
-  it('getCart exposes maxQuantity from the live count', async () => {
+  it('getCart exposes maxQuantity and deliveryDays from the live count', async () => {
     const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
-      makeOffer({ count: 7, warehouseId: 'W1', raw: { offerKey: 'g|W1' } }),
+      makeOffer({ count: 7, deliveryDays: 10, warehouseId: 'W1', raw: { offerKey: 'g|W1' } }),
     ]);
     const { service } = makeService({ items: [makeItem({ raw: { offerKey: 'g|W1' } })], connector });
     const res = await service.getCart('u1');
     expect(res.items[0].maxQuantity).toBe(7);
+    expect(res.items[0].deliveryDays).toBe(10);
+  });
+
+  it('getCart reports deliveryDays=null for an unavailable line', async () => {
+    const connector = new MockConnector('mock', 'Mock Supplier').failWith(
+      new Error('down'),
+    );
+    const { service } = makeService({ items: [makeItem()], connector });
+    const res = await service.getCart('u1');
+    expect(res.items[0].available).toBe(false);
+    expect(res.items[0].deliveryDays).toBeNull();
   });
 
   it('updateItem rejects quantity above maxQuantity', async () => {
@@ -305,5 +405,42 @@ describe('CartService', () => {
     ]);
     const { service } = makeService({ items: [makeItem({ id: 'i1', raw: { offerKey: 'g|W1' } })], connector });
     await expect(service.updateItem('u1', 'i1', 5)).rejects.toThrow(/доступно|available/i);
+  });
+
+  it('getCart exposes the live offer multiplicity for each line', async () => {
+    const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
+      makeOffer({ count: 12, multiplicity: 4, warehouseId: 'W1', raw: { offerKey: 'g|W1' } }),
+    ]);
+    const { service } = makeService({
+      items: [makeItem({ quantity: 4, raw: { offerKey: 'g|W1' } })],
+      connector,
+    });
+    const res = await service.getCart('u1');
+    expect(res.items[0].multiplicity).toBe(4);
+  });
+
+  it('updateItem rejects a quantity that is not a multiple of the live offer multiplicity', async () => {
+    // The stored raw carries NO multiplicity — the value must come from the live
+    // recheck, exactly the case that let the cart step by 1 for a pack-of-4 offer.
+    const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
+      makeOffer({ count: 12, multiplicity: 4, warehouseId: 'W1', raw: { offerKey: 'g|W1' } }),
+    ]);
+    const { service } = makeService({
+      items: [makeItem({ id: 'i1', quantity: 4, raw: { offerKey: 'g|W1' } })],
+      connector,
+    });
+    await expect(service.updateItem('u1', 'i1', 5)).rejects.toThrow(/кратно/i);
+  });
+
+  it('updateItem accepts a valid multiple of the live offer multiplicity', async () => {
+    const connector = new MockConnector('mock', 'Mock Supplier').setOffers([
+      makeOffer({ count: 12, multiplicity: 4, warehouseId: 'W1', raw: { offerKey: 'g|W1' } }),
+    ]);
+    const { service } = makeService({
+      items: [makeItem({ id: 'i1', quantity: 4, raw: { offerKey: 'g|W1' } })],
+      connector,
+    });
+    const res = await service.updateItem('u1', 'i1', 8);
+    expect(res.items[0].quantity).toBe(8);
   });
 });

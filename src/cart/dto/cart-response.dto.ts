@@ -20,6 +20,14 @@ export class CartItemDto {
   @ApiProperty({ description: 'Количество в корзине', example: 2 }) quantity: number;
   @ApiProperty({ description: 'Доступный остаток на складе (0, если нет в наличии)', example: 10 })
   maxQuantity: number;
+  @ApiProperty({ description: 'Кратность заказа (товар заказывается партиями по N штук)', example: 4 })
+  multiplicity: number;
+  @ApiProperty({
+    description: 'Срок доставки в днях по актуальной проверке (null, если предложение недоступно)',
+    example: 10,
+    nullable: true,
+  })
+  deliveryDays: number | null;
   @ApiProperty({ description: 'Сумма по позиции: текущая цена × количество', example: 10900 })
   subtotal: number;
 }
