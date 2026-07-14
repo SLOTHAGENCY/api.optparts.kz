@@ -45,14 +45,16 @@ export class SupplierOrder {
   isTest: boolean;
 
   /**
-   * When we last STARTED contacting this supplier — persisted BEFORE the connector call,
-   * never after. A row that is still NEW but carries an attemptedAt is ambiguous: the
-   * request may have reached the supplier and only the outcome write was lost. Such a row
-   * must never be auto-re-sent (see OrdersService.retrySupplierOrder).
+   * When we last STARTED contacting this supplier — written in the SAME conditional UPDATE
+   * that claims the row into SENDING, before the connector call and never after. A row
+   * left in SENDING is ambiguous: the request may have reached the supplier and only the
+   * outcome write was lost. Such a row must never be auto-re-sent — only an admin can
+   * settle it (see OrdersService.resolveSupplierAttempt).
    */
   @ApiProperty({
     description:
-      'Момент начала обращения к поставщику (пишется ДО вызова API). NEW + attemptedAt = неизвестно, дошёл ли заказ — повтор запрещён.',
+      'Момент начала обращения к поставщику (пишется ДО вызова API, вместе со статусом SENDING). ' +
+      'Статус SENDING = неизвестно, дошёл ли заказ — повтор запрещён, решает администратор.',
     required: false,
     nullable: true,
   })

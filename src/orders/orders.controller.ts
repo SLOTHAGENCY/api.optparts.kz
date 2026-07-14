@@ -13,6 +13,7 @@ import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { RequestReturnDto } from './dto/request-return.dto';
+import { ResolveAttemptDto } from './dto/resolve-attempt.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -123,19 +124,63 @@ export class OrdersController {
   @Post(':id/suppliers/:sid/retry')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Повторить размещение под-заказа со статусом FAILED (менеджер/админ)',
+    summary: 'Повторить размещение под-заказа (NEW / FAILED) (менеджер/админ)',
     description:
       'Пытается заново разместить у поставщика под-заказ, который ранее не удалось оформить ' +
-      '(статус FAILED) — например, из-за временной ошибки на стороне поставщика. Доступно ' +
-      'только менеджеру или администратору.',
+      '(статус FAILED) или который вообще не был отправлен (статус NEW) — например, из-за ' +
+      'временной ошибки на стороне поставщика. Повторная отправка защищена на уровне БД: даже ' +
+      'если нажать кнопку дважды или это сделают два менеджера одновременно, поставщик получит ' +
+      'заказ ровно один раз. Под-заказ в статусе SENDING (отправка идёт прямо сейчас либо её ' +
+      'результат не сохранился) повторить нельзя — это разрешает администратор через ' +
+      'POST /orders/:id/suppliers/:sid/resolve-attempt. Тестовые под-заказы повторить нельзя. ' +
+      'Доступно только менеджеру или администратору.',
   })
   @ApiParam({ name: 'id', description: 'ID заказа' })
   @ApiParam({ name: 'sid', description: 'ID под-заказа поставщика' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Под-заказ нельзя повторить: он уже у поставщика (PLACED и далее), находится в неопределённом ' +
+      'состоянии (SENDING) или является тестовым.',
+  })
   retrySupplierOrder(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('sid', ParseUUIDPipe) sid: string,
   ) {
     return this.ordersService.retrySupplierOrder(id, sid);
+  }
+
+  /** POST /orders/:id/suppliers/:sid/resolve-attempt — settle an ambiguous SENDING row (ADMIN) */
+  @Roles(UserRole.ADMIN)
+  @Post(':id/suppliers/:sid/resolve-attempt')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Разрешить «зависший» под-заказ (статус SENDING) — только админ',
+    description:
+      'Под-заказ в статусе SENDING — это неопределённость: запрос поставщику ушёл, но результат ' +
+      'не сохранился (сбой, обрыв связи). Возможно, заказ у поставщика уже есть, поэтому ' +
+      'автоматически повторить его нельзя — иначе товар закажется дважды. Порядок действий: ' +
+      'связаться с поставщиком, выяснить, дошёл ли заказ, и зафиксировать ответ здесь. ' +
+      'delivered=true — заказ у поставщика есть: под-заказ становится PLACED (можно указать номер ' +
+      'заказа поставщика в externalOrderId). delivered=false — заказа у поставщика нет: под-заказ ' +
+      'становится FAILED, и обычная кнопка «Повторить» снова работает. Действие фиксируется в ' +
+      'логах вместе с id администратора. Доступно только администратору.',
+  })
+  @ApiParam({ name: 'id', description: 'ID заказа' })
+  @ApiParam({ name: 'sid', description: 'ID под-заказа поставщика' })
+  @ApiResponse({ status: 200, description: 'Под-заказ переведён в PLACED или FAILED.' })
+  @ApiResponse({ status: 403, description: 'Только для администратора.' })
+  @ApiResponse({
+    status: 409,
+    description: 'Под-заказ не находится в неопределённом состоянии (SENDING) — разрешать нечего.',
+  })
+  resolveSupplierAttempt(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('sid', ParseUUIDPipe) sid: string,
+    @Body() dto: ResolveAttemptDto,
+  ) {
+    return this.ordersService.resolveSupplierAttempt(id, sid, dto, user.id);
   }
 
   /** POST /orders/:id/suppliers/:sid/return — request a return (MANAGER/ADMIN) */

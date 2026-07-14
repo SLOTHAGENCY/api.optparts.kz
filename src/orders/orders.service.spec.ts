@@ -4,6 +4,23 @@ import { DeliveryType, OrderStatus } from './entities/order.entity';
 import { SupplierOrder } from './entities/supplier-order.entity';
 import { MockConnector } from '../suppliers/connectors/mock/mock.connector';
 
+/**
+ * Deep clone that keeps Dates as Dates (structuredClone builds them in another realm, so
+ * `instanceof Date` fails under Jest). The repo mocks below store clones, never the
+ * caller's object: that is what lets a test assert what was actually WRITTEN at a given
+ * moment, instead of reading live in-memory state the service is still mutating.
+ */
+function cloneRow<T>(value: T): T {
+  if (value instanceof Date) return new Date(value.getTime()) as any;
+  if (Array.isArray(value)) return value.map(cloneRow) as any;
+  if (value && typeof value === 'object') {
+    const out: any = {};
+    for (const [k, v] of Object.entries(value as any)) out[k] = cloneRow(v);
+    return out;
+  }
+  return value;
+}
+
 function makeCheckoutItem(over: Partial<any> = {}) {
   return {
     supplierCode: 'mock',
@@ -52,17 +69,54 @@ function makeDeps(
     }),
   };
   let subSeq = 0;
-  // Rows actually committed to supplier_orders, so a test can assert what survives a
-  // rolled-back transaction.
+  // The supplier_orders "table": rows actually committed, so a test can assert what
+  // survives a rolled-back transaction. Rows are COPIES, never the caller's entity — see
+  // save()/findOne() below.
   const persistedSubs: any[] = [];
+  // Ordered log of everything ever WRITTEN to the table, as deep clones. Reading the last
+  // entry tells you what was on disk at that moment — unlike save.mock.calls, which hands
+  // back the live object the service keeps mutating and would happily "prove" a write that
+  // never happened.
+  const subWrites: any[] = [];
   const supplierOrderRepo = {
     create: jest.fn((data: any) => ({ ...data })),
+    // save() is an UNCONDITIONAL write-through (SQL: UPDATE ... WHERE id), like TypeORM's.
+    // It stores a COPY and returns the caller's own object: a caller therefore never
+    // magically observes a write made by somebody else, so an in-memory row it is holding
+    // goes stale exactly as it does in production. That staleness is what gives the
+    // compare-and-set in sendSupplierOrder() something real to catch.
     save: jest.fn(async (s: any) => {
       s.id = s.id ?? `sub-${++subSeq}`;
-      if (!persistedSubs.includes(s)) persistedSubs.push(s);
+      const row = persistedSubs.find((r: any) => r.id === s.id);
+      if (row) Object.assign(row, cloneRow(s));
+      else persistedSubs.push(cloneRow(s));
+      subWrites.push(cloneRow(s));
       return s;
     }),
-    findOne: jest.fn(),
+    // Honest compare-and-set, like SQL `UPDATE ... WHERE id = ? AND status = ?`: only the
+    // caller whose `where` status still matches the row gets affected: 1; everyone after
+    // it gets 0. A mock that always returned affected: 1 would make every concurrency test
+    // below vacuous.
+    update: jest.fn(async (where: any, patch: any) => {
+      const row = persistedSubs.find((r: any) => r.id === where.id);
+      if (!row) return { affected: 0 };
+      if (where.status !== undefined && row.status !== where.status) {
+        return { affected: 0 };
+      }
+      Object.assign(row, patch);
+      subWrites.push(cloneRow(row));
+      return { affected: 1 };
+    }),
+    // A SELECT hands out a fresh object, never the table's row.
+    findOne: jest.fn(async (opts: any = {}) => {
+      const where = opts.where ?? {};
+      const row = persistedSubs.find(
+        (r: any) =>
+          (where.id === undefined || r.id === where.id) &&
+          (where.orderId === undefined || r.orderId === where.orderId),
+      );
+      return row ? cloneRow(row) : null;
+    }),
   };
   // A transaction fake with real rollback semantics: on throw, the order rows' fields and
   // the supplier_orders table are restored to their pre-transaction state. Without that,
@@ -75,7 +129,7 @@ function makeDeps(
   (orderRepo as any).manager = {
     transaction: jest.fn(async (cb: (m: any) => Promise<any>) => {
       const orderSnapshot = saved.map((o: any) => ({ row: o, ...o }));
-      const subsSnapshot = [...persistedSubs];
+      const subsSnapshot = persistedSubs.map((r: any) => ({ ...r }));
       try {
         return await cb(txManager);
       } catch (err) {
@@ -119,6 +173,7 @@ function makeDeps(
     orderRepo,
     supplierOrderRepo,
     persistedSubs,
+    subWrites,
     cart,
     registry,
     partnerProducts,
@@ -148,6 +203,27 @@ describe('aggregateOrderStatus', () => {
 
   it('returns CANCELLED for an empty list', () => {
     expect(aggregateOrderStatus([])).toBe(OrderStatus.CANCELLED);
+  });
+
+  // A SENDING group is ambiguous — it is NOT at the supplier as far as we know. Letting it
+  // read as PLACED would bury an order the customer has paid for.
+  it('never returns PLACED while a sub-order is still SENDING', () => {
+    expect(aggregateOrderStatus(['PLACED', 'SENDING'])).toBe(
+      OrderStatus.PARTIALLY_PLACED,
+    );
+    expect(aggregateOrderStatus(['SENDING'])).toBe(
+      OrderStatus.PARTIALLY_PLACED,
+    );
+    expect(aggregateOrderStatus(['SENDING', 'FAILED'])).toBe(
+      OrderStatus.PARTIALLY_PLACED,
+    );
+  });
+
+  // Same for an un-sent NEW group: paid for, never ordered, must stay visible.
+  it('never returns PLACED while a sub-order is still NEW', () => {
+    expect(aggregateOrderStatus(['PLACED', 'NEW'])).toBe(
+      OrderStatus.PARTIALLY_PLACED,
+    );
   });
 });
 
@@ -451,10 +527,10 @@ describe('OrdersService.placeWithSuppliers', () => {
     // The supplier is contacted, then persisting the placement outcome blows up. (The
     // NEW row pre-created before any contact still persists fine — the crash is on the
     // save that carries the result back.)
+    const realSave = supplierOrderRepo.save.getMockImplementation()!;
     supplierOrderRepo.save.mockImplementation(async (s: any) => {
       if (s.status !== 'NEW') throw new Error('db died');
-      s.id = s.id ?? 'sub-1';
-      return s;
+      return realSave(s);
     });
     await expect(service.placeWithSuppliers(created.id)).rejects.toThrow(
       'db died',
@@ -572,12 +648,12 @@ describe('OrdersService.placeWithSuppliers', () => {
 
     // Persisting the *outcome* of the first group (status FAILED, already contacted)
     // dies. Pre-created NEW rows still save fine.
+    const realSave = supplierOrderRepo.save.getMockImplementation()!;
     supplierOrderRepo.save.mockImplementation(async (s: any) => {
       if (s.supplierCode === 'mock' && s.status !== 'NEW') {
         throw new Error('db died');
       }
-      s.id = s.id ?? `sub-${s.supplierCode}`;
-      return s;
+      return realSave(s);
     });
 
     await expect(service.placeWithSuppliers(created.id)).rejects.toThrow(
@@ -593,23 +669,29 @@ describe('OrdersService.placeWithSuppliers', () => {
     expect(rossko.externalOrderId).toBeNull();
   });
 
-  // FINDING 1 — the attempt marker must be on disk BEFORE the supplier hears from us.
-  // If it were written afterwards, a lost outcome-write would leave a bare NEW row and a
-  // manager could re-send an order the supplier already has.
-  it('persists attemptedAt on the row BEFORE calling the connector', async () => {
+  // FINDING 1 — the SENDING claim + attempt marker must be ON DISK before the supplier
+  // hears from us. If they were written afterwards, a lost outcome-write would leave a
+  // bare NEW row and a manager could re-send an order the supplier already has.
+  //
+  // This asserts PERSISTENCE, not memory: subWrites holds deep CLONES taken at write time,
+  // so a source that stamps `sub.status = 'SENDING'` in memory and only persists after the
+  // connector returns fails here. (Reading save.mock.calls instead would hand back the
+  // live object the service keeps mutating, and would pass either way — which is exactly
+  // how the previous version of this test was hollow.)
+  it('persists the SENDING claim + attemptedAt on the row BEFORE calling the connector', async () => {
     let rowAtContact: any = null;
+    let writesAtContact = 0;
     const connector = new MockConnector().setOrderResult({
       externalOrderId: 'EXT-1',
       status: 'PLACED',
     });
-    const { service, supplierOrderRepo } = makeDeps([makeCheckoutItem()], {
+    const { service, subWrites } = makeDeps([makeCheckoutItem()], {
       mock: connector,
     });
     jest.spyOn(connector, 'placeOrder').mockImplementation(async () => {
-      // Snapshot what the LAST save() actually committed at the moment of contact.
-      const calls = supplierOrderRepo.save.mock.calls;
-      const last = calls[calls.length - 1][0];
-      rowAtContact = { status: last.status, attemptedAt: last.attemptedAt };
+      // Snapshot what the table actually held at the moment of contact.
+      rowAtContact = subWrites[subWrites.length - 1] ?? null;
+      writesAtContact = subWrites.length;
       return { externalOrderId: 'EXT-1', status: 'PLACED' as const };
     });
 
@@ -619,9 +701,11 @@ describe('OrdersService.placeWithSuppliers', () => {
     await service.placeWithSuppliers(created.id);
 
     expect(rowAtContact).not.toBeNull();
+    // The last thing written before the wire is the claim: SENDING + a real attemptedAt.
+    expect(rowAtContact.status).toBe('SENDING');
     expect(rowAtContact.attemptedAt).toBeInstanceOf(Date);
-    // Still NEW at that point: only the marker is committed, not an outcome.
-    expect(rowAtContact.status).toBe('NEW');
+    // Pre-create (NEW) + claim (SENDING) — and nothing else yet: no outcome is on disk.
+    expect(writesAtContact).toBe(2);
   });
 
   // FINDING 2 — claim + sub-order inserts are one transaction. A rollback must un-claim
@@ -695,6 +779,98 @@ describe('OrdersService.placeWithSuppliers', () => {
     expect(placed.supplierOrders).toHaveLength(2);
     expect(placed.status).toBe(OrderStatus.PARTIALLY_PLACED);
   });
+
+  // D1, second half — a manager clicks "retry" on a NEW row while the placement loop is
+  // still grinding through a slow EARLIER supplier. The loop sends from its in-memory
+  // array and never re-reads the row; only the DB claim can stop it re-sending what the
+  // manager just sent. The second supplier must hear from us exactly once.
+  it('a manager retry racing the in-flight placement loop does not double-send', async () => {
+    const slow = new MockConnector('mock', 'Mock');
+    const second = new MockConnector('rossko', 'Rossko').setOrderResult({
+      externalOrderId: 'EXT-2',
+      status: 'PLACED',
+    });
+    const secondSpy = jest.spyOn(second, 'placeOrder');
+    const { service, persistedSubs } = makeDeps(
+      [
+        makeCheckoutItem({ supplierCode: 'mock' }),
+        makeCheckoutItem({ supplierCode: 'rossko', warehouseId: 'w2' }),
+      ],
+      { mock: slow, rossko: second },
+    );
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+
+    // While the loop is blocked on the slow first supplier, the manager retries the second
+    // group's (still NEW) row through the normal endpoint.
+    jest.spyOn(slow, 'placeOrder').mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      const rossko = persistedSubs.find(
+        (s: any) => s.supplierCode === 'rossko',
+      );
+      await service.retrySupplierOrder(created.id, rossko.id);
+      return { externalOrderId: 'EXT-1', status: 'PLACED' as const };
+    });
+
+    const placed = await service.placeWithSuppliers(created.id);
+
+    // The manager's retry placed it; the loop, holding a stale NEW row, lost the claim.
+    expect(secondSpy).toHaveBeenCalledTimes(1);
+    const rosskoRow = persistedSubs.find((s: any) => s.supplierCode === 'rossko');
+    expect(rosskoRow.status).toBe('PLACED');
+    expect(rosskoRow.externalOrderId).toBe('EXT-2');
+    // The loop refreshed its stale copy from the DB, so the order still aggregates right.
+    expect(placed.status).toBe(OrderStatus.PLACED);
+  });
+
+  // A row stuck in SENDING is NOT placed. If it let the order read as fully PLACED, nobody
+  // would ever look at it again — and the customer paid for those goods.
+  it('an order with a stuck SENDING sub-order does not aggregate to PLACED', async () => {
+    const ok = new MockConnector('mock', 'Mock').setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const other = new MockConnector('rossko', 'Rossko').setOrderResult({
+      externalOrderId: 'EXT-2',
+      status: 'PLACED',
+    });
+    const otherSpy = jest.spyOn(other, 'placeOrder');
+    const { service, supplierOrderRepo, persistedSubs } = makeDeps(
+      [
+        makeCheckoutItem({ supplierCode: 'mock' }),
+        makeCheckoutItem({ supplierCode: 'rossko', warehouseId: 'w2' }),
+      ],
+      { mock: ok, rossko: other },
+    );
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+
+    // Somebody else claimed the rossko row first and then died mid-send: it is already
+    // SENDING on disk, and our loop loses the compare-and-set on it.
+    const realUpdate = supplierOrderRepo.update.getMockImplementation()!;
+    supplierOrderRepo.update.mockImplementation(async (where: any, patch: any) => {
+      const row = persistedSubs.find((r: any) => r.id === where.id);
+      if (row?.supplierCode === 'rossko' && row.status === 'NEW') {
+        row.status = 'SENDING';
+        row.attemptedAt = new Date();
+        return { affected: 0 };
+      }
+      return realUpdate(where, patch);
+    });
+
+    const placed = await service.placeWithSuppliers(created.id);
+
+    expect(otherSpy).not.toHaveBeenCalled();
+    const rossko = (placed.supplierOrders ?? []).find(
+      (s: any) => s.supplierCode === 'rossko',
+    );
+    expect(rossko!.status).toBe('SENDING');
+    expect(placed.status).toBe(OrderStatus.PARTIALLY_PLACED);
+  });
 });
 
 describe('OrdersService manager controls', () => {
@@ -713,9 +889,42 @@ describe('OrdersService manager controls', () => {
       findOne: jest.fn(async () => order),
       save: jest.fn(async (o: any) => o),
     };
+    // `sub` IS the row in the supplier_orders table. Every SELECT hands out a fresh copy
+    // of it (as a real DB does), so two concurrent requests hold two independent objects
+    // and neither can see the other's uncommitted intent; only writes go back to the row.
+    // Without that, a shared object reference would smuggle information between the two
+    // "requests" and hide the very double-send this suite exists to catch.
+    const subWrites: any[] = [];
+    const rows: any[] = [sub];
     const supplierOrderRepo = {
-      findOne: jest.fn(async () => sub),
-      save: jest.fn(async (s: any) => s),
+      findOne: jest.fn(async (opts: any = {}) => {
+        const where = opts.where ?? {};
+        const row = rows.find(
+          (r: any) =>
+            (where.id === undefined || r.id === where.id) &&
+            (where.orderId === undefined || r.orderId === where.orderId),
+        );
+        return row ? cloneRow(row) : null;
+      }),
+      // Unconditional write-through (UPDATE ... WHERE id).
+      save: jest.fn(async (s: any) => {
+        const row = rows.find((r: any) => r.id === s.id);
+        if (row) Object.assign(row, cloneRow(s));
+        else rows.push(cloneRow(s));
+        subWrites.push(cloneRow(s));
+        return s;
+      }),
+      // Honest compare-and-set: the loser of a race gets affected: 0, never a free pass.
+      update: jest.fn(async (where: any, patch: any) => {
+        const row = rows.find((r: any) => r.id === where.id);
+        if (!row) return { affected: 0 };
+        if (where.status !== undefined && row.status !== where.status) {
+          return { affected: 0 };
+        }
+        Object.assign(row, patch);
+        subWrites.push(cloneRow(row));
+        return { affected: 1 };
+      }),
     };
     const rateLimiter = { gate: jest.fn(async (_code: any, _rpm: any, fn: () => any) => fn()) };
     const service = new OrdersService(
@@ -729,8 +938,17 @@ describe('OrdersService manager controls', () => {
       { findOne: jest.fn() } as any,
       { getOrderMode: jest.fn(async () => 'prod') } as any,
     );
-    return { service, order, orderRepo, supplierOrderRepo, rateLimiter };
+    return { service, order, orderRepo, supplierOrderRepo, rateLimiter, subWrites };
   }
+
+  const ITEM = {
+    supplierCode: 'mock',
+    article: 'A1',
+    brand: 'BOSCH',
+    warehouseId: 'w1',
+    quantity: 1,
+    raw: {},
+  };
 
   it('refresh-status updates the sub-order status from the connector', async () => {
     const sub = {
@@ -939,6 +1157,254 @@ describe('OrdersService manager controls', () => {
     await service.retrySupplierOrder('order-1', 'sub-1');
     expect(rateLimiter.gate).toHaveBeenCalledWith('mock', null, expect.any(Function));
     expect(sub.status).toBe('PLACED');
+  });
+
+  // D1 — THE reproduction. A double-clicked retry button (or two managers) fires two
+  // retries at once against a supplier that takes real time to answer. The supplier must
+  // hear from us EXACTLY ONCE: the DB-arbitrated claim in sendSupplierOrder() lets only one
+  // of them through, and the loser either sees affected: 0 or is refused as SENDING.
+  it('two CONCURRENT retries call placeOrder exactly once', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'FAILED',
+      attemptedAt: null,
+      errorMessage: 'previous error',
+      isTest: false,
+    };
+    const connector = new MockConnector();
+    const placeSpy = jest
+      .spyOn(connector, 'placeOrder')
+      .mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+        return { externalOrderId: 'EXT-1', status: 'PLACED' as const };
+      });
+    const { service } = makeServiceWithSub(sub, connector, [ITEM]);
+
+    const results = await Promise.allSettled([
+      service.retrySupplierOrder('order-1', 'sub-1'),
+      service.retrySupplierOrder('order-1', 'sub-1'),
+    ]);
+
+    expect(placeSpy).toHaveBeenCalledTimes(1);
+    expect(sub.status).toBe('PLACED');
+    expect(sub.externalOrderId).toBe('EXT-1');
+    // At least one call did the work; the other is allowed to succeed as a no-op or to be
+    // refused (409) — but it must not have touched the supplier, which is asserted above.
+    expect(results.some((r) => r.status === 'fulfilled')).toBe(true);
+  });
+
+  // D2 — the lost outcome write. The connector was called, the result never reached the
+  // DB. The row must be left in SENDING (ambiguous), NOT in a retryable status: a second
+  // retry must be refused, or we would order the same goods twice.
+  it('a row whose outcome write is lost stays SENDING and is no longer retryable', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'FAILED',
+      attemptedAt: null,
+      errorMessage: 'previous error',
+      isTest: false,
+    };
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service, supplierOrderRepo } = makeServiceWithSub(sub, connector, [
+      ITEM,
+    ]);
+
+    // The outcome write (the only save() in the send path) never lands.
+    const realSave = supplierOrderRepo.save.getMockImplementation()!;
+    supplierOrderRepo.save.mockImplementation(async () => {
+      throw new Error('db died');
+    });
+    await expect(
+      service.retrySupplierOrder('order-1', 'sub-1'),
+    ).rejects.toThrow('db died');
+
+    expect(placeSpy).toHaveBeenCalledTimes(1);
+    // The claim IS on disk — the row is ambiguous, not FAILED and not NEW.
+    expect(sub.status).toBe('SENDING');
+    expect(sub.attemptedAt).toBeInstanceOf(Date);
+
+    // The DB is back. The manager clicks retry again: refused, supplier untouched.
+    supplierOrderRepo.save.mockImplementation(realSave);
+    await expect(
+      service.retrySupplierOrder('order-1', 'sub-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(placeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // A SENDING row is ambiguous by definition — the retry button must never touch it.
+  it('retry refuses a SENDING sub-order and points at resolve-attempt', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'SENDING',
+      attemptedAt: new Date('2026-07-14T10:00:00Z'),
+      errorMessage: null,
+      isTest: false,
+    };
+    const connector = new MockConnector();
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service } = makeServiceWithSub(sub, connector, [ITEM]);
+
+    await expect(
+      service.retrySupplierOrder('order-1', 'sub-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    // The refusal must name a capability that actually exists, not a dead end.
+    await expect(
+      service.retrySupplierOrder('order-1', 'sub-1'),
+    ).rejects.toThrow(/resolve-attempt/);
+    expect(placeSpy).not.toHaveBeenCalled();
+    expect(sub.status).toBe('SENDING');
+  });
+
+  // D3 — a test-mode sub-order is created NEW and deliberately never sent. Retrying it
+  // would place a REAL order with a REAL partner off the back of a test run.
+  it('retry refuses a test-mode sub-order', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'NEW',
+      attemptedAt: null,
+      errorMessage: null,
+      isTest: true,
+    };
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-9',
+      status: 'PLACED',
+    });
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service } = makeServiceWithSub(sub, connector, [ITEM]);
+
+    await expect(
+      service.retrySupplierOrder('order-1', 'sub-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      service.retrySupplierOrder('order-1', 'sub-1'),
+    ).rejects.toThrow(/test/i);
+    expect(placeSpy).not.toHaveBeenCalled();
+    expect(sub.status).toBe('NEW');
+  });
+
+  // D4 — the way OUT of the ambiguous state: the admin phoned the supplier.
+  it('resolve-attempt marks a SENDING row PLACED when the supplier does have the order', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'SENDING',
+      attemptedAt: new Date('2026-07-14T10:00:00Z'),
+      errorMessage: 'x',
+      isTest: false,
+    };
+    const connector = new MockConnector();
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service } = makeServiceWithSub(sub, connector, [ITEM]);
+
+    await service.resolveSupplierAttempt(
+      'order-1',
+      'sub-1',
+      { delivered: true, externalOrderId: 'EXT-77' },
+      'admin-1',
+    );
+
+    expect(sub.status).toBe('PLACED');
+    expect(sub.externalOrderId).toBe('EXT-77');
+    expect(sub.errorMessage).toBeNull();
+    // Resolving is bookkeeping about a call that already happened — never a new send.
+    expect(placeSpy).not.toHaveBeenCalled();
+  });
+
+  it('resolve-attempt marks a SENDING row FAILED and re-opens the retry', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'SENDING',
+      attemptedAt: new Date('2026-07-14T10:00:00Z'),
+      errorMessage: null,
+      isTest: false,
+    };
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-8',
+      status: 'PLACED',
+    });
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service } = makeServiceWithSub(sub, connector, [ITEM]);
+
+    await service.resolveSupplierAttempt(
+      'order-1',
+      'sub-1',
+      { delivered: false, comment: 'Supplier has no such order.' },
+      'admin-1',
+    );
+    expect(sub.status).toBe('FAILED');
+    expect(placeSpy).not.toHaveBeenCalled();
+
+    // FAILED is retryable again — the customer's goods finally get ordered.
+    await service.retrySupplierOrder('order-1', 'sub-1');
+    expect(placeSpy).toHaveBeenCalledTimes(1);
+    expect(sub.status).toBe('PLACED');
+    expect(sub.externalOrderId).toBe('EXT-8');
+  });
+
+  it('resolve-attempt refuses a row that is not ambiguous', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+      attemptedAt: new Date('2026-07-14T10:00:00Z'),
+      isTest: false,
+    };
+    const { service } = makeServiceWithSub(sub, new MockConnector());
+    await expect(
+      service.resolveSupplierAttempt(
+        'order-1',
+        'sub-1',
+        { delivered: false },
+        'admin-1',
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(sub.status).toBe('PLACED');
+  });
+
+  // A legacy row from before SENDING existed (NEW + attemptedAt) is ambiguous too, and
+  // must be resolvable the same way — otherwise it is stuck forever.
+  it('resolve-attempt also settles a legacy NEW + attemptedAt row', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'NEW',
+      attemptedAt: new Date('2026-07-14T10:00:00Z'),
+      errorMessage: null,
+      isTest: false,
+    };
+    const { service } = makeServiceWithSub(sub, new MockConnector());
+    await service.resolveSupplierAttempt(
+      'order-1',
+      'sub-1',
+      { delivered: false },
+      'admin-1',
+    );
+    expect(sub.status).toBe('FAILED');
   });
 
   it('return via connector API sets returnStatus from the result', async () => {

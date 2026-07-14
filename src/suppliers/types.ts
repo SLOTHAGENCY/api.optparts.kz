@@ -21,8 +21,17 @@ export interface PlaceOrderItem {
   raw: Record<string, unknown>;
 }
 
+/**
+ * SENDING is OUR state, never a supplier's: the row is claimed by exactly one sender
+ * (a conditional UPDATE) for the duration of the connector call. A row left in SENDING
+ * means the request may have reached the supplier while the outcome write was lost — it
+ * is ambiguous, must never be auto-re-sent, and only an admin who phoned the supplier can
+ * resolve it (see OrdersService.resolveSupplierAttempt).
+ * `supplier_orders.status` is a plain varchar column, so a new value needs no migration.
+ */
 export type SupplierOrderStatusValue =
   | 'NEW'
+  | 'SENDING'
   | 'PLACED'
   | 'FAILED'
   | 'CONFIRMED'

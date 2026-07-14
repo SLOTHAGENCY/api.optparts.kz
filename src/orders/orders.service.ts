@@ -21,6 +21,7 @@ import { OrderItem } from './entities/order-item.entity';
 import { SupplierOrder } from './entities/supplier-order.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { RequestReturnDto } from './dto/request-return.dto';
+import { ResolveAttemptDto } from './dto/resolve-attempt.dto';
 import {
   CART_CHECKOUT,
   CartCheckoutContract,
@@ -39,31 +40,54 @@ import { SuppliersService } from '../suppliers/suppliers.service';
 import { RateLimiterRegistry } from '../suppliers/rate-limiter.registry';
 
 /**
+ * Sub-order statuses that are NOT (yet) at the supplier:
+ *  - NEW     — pre-created, never sent;
+ *  - SENDING — a send is in flight, or its outcome write was lost (ambiguous);
+ *  - FAILED  — sent and rejected.
+ * Anything else (PLACED / CONFIRMED / SHIPPED / DELIVERED / CANCELLED) means the supplier
+ * accepted the order at some point.
+ */
+const NOT_PLACED_SUPPLIER_STATUSES: SupplierOrderStatusValue[] = [
+  'NEW',
+  'SENDING',
+  'FAILED',
+];
+
+/**
  * Aggregate the order status from its sub-order statuses (Spec C §4.6).
  *
  * Nothing placed (empty list, or every group failed) means the order is dead: the
  * customer has paid and the manager must see it as a refund candidate, so it lands in
  * CANCELLED rather than the misleading PARTIALLY_PLACED.
+ *
+ * A stuck SENDING group is NOT placed: it must never let the order read as fully PLACED,
+ * or nobody would ever look at it again.
  */
 export function aggregateOrderStatus(
   statuses: SupplierOrderStatusValue[],
 ): OrderStatus {
   if (statuses.length === 0) return OrderStatus.CANCELLED;
   if (statuses.every((s) => s === 'FAILED')) return OrderStatus.CANCELLED;
-  if (statuses.some((s) => s === 'FAILED')) return OrderStatus.PARTIALLY_PLACED;
+  if (statuses.some((s) => NOT_PLACED_SUPPLIER_STATUSES.includes(s))) {
+    return OrderStatus.PARTIALLY_PLACED;
+  }
   return OrderStatus.PLACED;
 }
 
 /**
  * Sub-order statuses that are "in flight" at the supplier and worth polling.
- * NEW is not yet placed (no externalOrderId); FAILED is retried, not polled;
- * DELIVERED / CANCELLED are terminal.
+ * NEW is not yet placed (no externalOrderId); SENDING has no externalOrderId either (the
+ * send is in flight or its outcome was lost — an admin resolves it, a poll cannot);
+ * FAILED is retried, not polled; DELIVERED / CANCELLED are terminal.
  */
 export const POLLABLE_SUPPLIER_STATUSES: SupplierOrderStatusValue[] = [
   'PLACED',
   'CONFIRMED',
   'SHIPPED',
 ];
+
+/** Sub-order statuses a manager may (re-)send from. Everything else is at the supplier. */
+const RETRYABLE_SUPPLIER_STATUSES: SupplierOrderStatusValue[] = ['NEW', 'FAILED'];
 
 @Injectable()
 export class OrdersService {
@@ -388,14 +412,42 @@ export class OrdersService {
     sub: SupplierOrder,
     items: OrderItem[],
   ): Promise<SupplierOrder> {
-    // Stamp the attempt BEFORE the wire, and COMMIT it. If the outcome write below is
-    // lost (crash, DB gone), the row stays NEW — but it now carries attemptedAt, which
-    // says "the supplier may already have this order". retrySupplierOrder() refuses such
-    // a row, so nobody can re-send it with a button click. Deliberately outside the
-    // try/catch: if this save fails we have NOT contacted anyone, so the row must stay a
-    // clean, retryable NEW rather than be marked FAILED.
-    sub.attemptedAt = new Date();
-    await this.supplierOrderRepo.save(sub);
+    // ---- Atomic claim of the SEND, the exact mirror of the order-level claim. ----
+    //
+    // A conditional UPDATE (…WHERE id = ? AND status = ?), never save() — save() is an
+    // unconditional `UPDATE … WHERE id`, so two senders would both "win" it and the
+    // supplier would receive the order twice. Here the DB picks the single winner; every
+    // other sender sees affected = 0 and walks away without touching the connector.
+    //
+    // This closes both holes at once:
+    //  - a concurrent retry (double-clicked button, two managers) loses the CAS;
+    //  - a placement loop working from its in-memory array loses the CAS too, because the
+    //    row it holds is stale the moment somebody else claims it;
+    //  - and if the outcome write below is lost (crash, DB gone), the row is left in
+    //    SENDING — a status NOTHING re-sends automatically. Only an admin who has phoned
+    //    the supplier can resolve it (resolveSupplierAttempt).
+    //
+    // Deliberately outside the try/catch: losing the claim, or failing to write it, means
+    // we have contacted NOBODY, so the row must not be marked FAILED.
+    const attemptedAt = new Date();
+    const claimed = await this.supplierOrderRepo.update(
+      { id: sub.id, status: sub.status },
+      { status: 'SENDING' as SupplierOrderStatusValue, attemptedAt },
+    );
+    if (!claimed.affected) {
+      // Someone else is already sending (or has already sent) this sub-order. Refresh our
+      // stale in-memory copy so the caller aggregates on the truth, and contact nobody.
+      this.logger.warn(
+        `sendSupplierOrder: sub-order ${sub.id} (${sub.supplierCode}) is already being sent by someone else — skipping.`,
+      );
+      const fresh = await this.supplierOrderRepo.findOne({
+        where: { id: sub.id },
+      });
+      if (fresh) Object.assign(sub, fresh);
+      return sub;
+    }
+    sub.status = 'SENDING';
+    sub.attemptedAt = attemptedAt;
 
     try {
       const connector = await this.suppliersRegistry.getByCode(
@@ -527,25 +579,34 @@ export class OrdersService {
     supplierOrderId: string,
   ): Promise<any> {
     const sub = await this.getSubOrder(orderId, supplierOrderId);
-    // NEW = pre-created but never sent (the placement loop died before reaching this
-    // group); FAILED = sent and rejected. Both are owed to a paying customer and safe to
-    // (re-)send. Anything else already lives at the supplier — re-sending would duplicate
-    // the order there.
-    if (sub.status !== 'FAILED' && sub.status !== 'NEW') {
+    // A test-mode sub-order is created NEW and deliberately never sent. Retrying it would
+    // place a REAL order with a REAL partner off the back of a test run.
+    if (sub.isTest) {
       throw new ConflictException(
-        'Only NEW or FAILED sub-orders can be retried.',
+        'This is a test-mode sub-order — it is never sent to the supplier and cannot be retried.',
       );
     }
-    // A NEW row that already carries attemptedAt is AMBIGUOUS: we started talking to the
-    // supplier and never persisted the outcome, so the order may well be sitting in their
-    // system. Re-sending it would duplicate real goods. Only a human who has phoned the
-    // supplier can resolve this — refuse the button.
-    // (FAILED keeps its pre-existing, accepted ambiguity and stays retryable.)
-    if (sub.status === 'NEW' && sub.attemptedAt) {
+    // SENDING is AMBIGUOUS: a send is in flight right now, or its outcome write was lost
+    // and the supplier may already have the order. Re-sending would duplicate real goods.
+    // Only a human who has phoned the supplier can settle it — point them at the endpoint
+    // that actually exists for that.
+    if (sub.status === 'SENDING' || (sub.status === 'NEW' && sub.attemptedAt)) {
       throw new ConflictException(
-        'This sub-order was already sent to the supplier once, but the result was never saved. ' +
-          'The supplier may already have it. Confirm with the supplier by phone before re-sending: ' +
-          'if they do not have the order, mark this sub-order FAILED and retry; if they do, refresh its status instead.',
+        'This sub-order is already being sent to the supplier, or was sent once and the result was never saved. ' +
+          'The supplier may already have it, so it cannot be re-sent from here. ' +
+          'Confirm with the supplier by phone, then record the answer via ' +
+          'POST /orders/:id/suppliers/:sid/resolve-attempt (admin): delivered=true marks it PLACED, ' +
+          'delivered=false marks it FAILED and re-opens the retry.',
+      );
+    }
+    // NEW = pre-created but never sent (the placement loop died before reaching this
+    // group); FAILED = sent and rejected. Both are owed to a paying customer and safe to
+    // (re-)send — and sendSupplierOrder() claims the row atomically, so even a double
+    // click can only produce ONE call to the supplier. Anything else already lives at the
+    // supplier — re-sending would duplicate the order there.
+    if (!RETRYABLE_SUPPLIER_STATUSES.includes(sub.status)) {
+      throw new ConflictException(
+        'Only NEW or FAILED sub-orders can be retried.',
       );
     }
     const order = await this.loadOrder(orderId);
@@ -553,6 +614,66 @@ export class OrdersService {
       (it) => it.supplierCode === sub.supplierCode,
     );
     await this.sendSupplierOrder(sub, groupItems);
+    await this.reaggregate(orderId);
+    return this.withLabel(await this.loadOrder(orderId));
+  }
+
+  /**
+   * Settle an AMBIGUOUS sub-order — one left in SENDING (or a legacy NEW + attemptedAt):
+   * we started talking to the supplier and never learned the outcome, so nothing may
+   * touch that row automatically. A human phones the supplier; this endpoint records what
+   * they said, and it is the ONLY exit from the ambiguous state.
+   *
+   *  - delivered: true  -> the supplier does have the order  -> PLACED (goods are coming;
+   *                        the admin may supply the supplier's own order id).
+   *  - delivered: false -> the supplier never got it         -> FAILED, which re-opens the
+   *                        normal retry path.
+   *
+   * ADMIN only, and the admin's id is logged: this is a manual override of the one rule
+   * that protects the customer's money.
+   */
+  async resolveSupplierAttempt(
+    orderId: string,
+    supplierOrderId: string,
+    dto: ResolveAttemptDto,
+    adminId: string,
+  ): Promise<any> {
+    const sub = await this.getSubOrder(orderId, supplierOrderId);
+    const isAmbiguous =
+      sub.status === 'SENDING' || (sub.status === 'NEW' && !!sub.attemptedAt);
+    if (!isAmbiguous) {
+      throw new ConflictException(
+        'Only an ambiguous sub-order (SENDING, i.e. sent to the supplier with no saved outcome) can be resolved this way.',
+      );
+    }
+
+    const next: SupplierOrderStatusValue = dto.delivered ? 'PLACED' : 'FAILED';
+    // Conditional update again: if the in-flight send finished between our read and this
+    // write, it — not us — owns the outcome, and we must not overwrite it.
+    const resolved = await this.supplierOrderRepo.update(
+      { id: sub.id, status: sub.status },
+      {
+        status: next,
+        externalOrderId: dto.delivered
+          ? dto.externalOrderId ?? sub.externalOrderId ?? null
+          : null,
+        errorMessage: dto.delivered
+          ? null
+          : dto.comment ??
+            'Supplier confirmed they never received this order — resolved manually by an admin.',
+      },
+    );
+    if (!resolved.affected) {
+      throw new ConflictException(
+        'This sub-order changed while you were resolving it — reload it and check its current status.',
+      );
+    }
+    this.logger.warn(
+      `resolve-attempt: sub-order ${sub.id} (${sub.supplierCode}, order ${orderId}) ` +
+        `resolved as ${next} by admin ${adminId}` +
+        (dto.comment ? `: ${dto.comment}` : ''),
+    );
+
     await this.reaggregate(orderId);
     return this.withLabel(await this.loadOrder(orderId));
   }
