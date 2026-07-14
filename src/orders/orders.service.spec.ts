@@ -36,6 +36,19 @@ function makeDeps(
       return o;
     }),
     findOne: jest.fn(async () => saved[0] ?? null),
+    // Honest compare-and-set, like SQL `UPDATE ... WHERE id = ? AND status = ?`:
+    // the row is matched and mutated in one indivisible step, so only the FIRST caller
+    // whose `where` status still matches gets affected: 1. Everyone after it gets 0.
+    // A mock that always returned affected: 1 would make the concurrency test vacuous.
+    update: jest.fn(async (where: any, patch: any) => {
+      const row = saved.find((o: any) => o.id === where.id);
+      if (!row) return { affected: 0 };
+      if (where.status !== undefined && row.status !== where.status) {
+        return { affected: 0 };
+      }
+      Object.assign(row, patch);
+      return { affected: 1 };
+    }),
   };
   let subSeq = 0;
   const supplierOrderRepo = {
@@ -341,7 +354,7 @@ describe('OrdersService.placeWithSuppliers', () => {
   it('skips suppliers in test mode', async () => {
     const connector = new MockConnector();
     const placeSpy = jest.spyOn(connector, 'placeOrder');
-    const { service } = makeDeps(
+    const { service, cart, partnerProducts } = makeDeps(
       [makeCheckoutItem()],
       { mock: connector },
       'test',
@@ -358,6 +371,83 @@ describe('OrdersService.placeWithSuppliers', () => {
     expect(placed.supplierOrders[0].status).toBe('NEW');
     expect(placed.supplierOrders[0].externalOrderId).toBeNull();
     expect(placed.supplierOrders[0].isTest).toBe(true);
+    // Test mode still books the analytics and empties the paid-out cart.
+    expect(partnerProducts.recordOrder).toHaveBeenCalledTimes(1);
+    expect(cart.clearCart).toHaveBeenCalledWith('user-1');
+  });
+
+  // Two `Pay` deliveries can land at the same instant. The order must be CLAIMED before
+  // any supplier is contacted, so exactly one of them does the placing.
+  it('places exactly once when two Pay webhooks arrive concurrently', async () => {
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service, cart } = makeDeps([makeCheckoutItem()], {
+      mock: connector,
+    });
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+
+    await Promise.all([
+      service.placeWithSuppliers(created.id),
+      service.placeWithSuppliers(created.id),
+    ]);
+
+    expect(placeSpy).toHaveBeenCalledTimes(1);
+    expect(cart.clearCart).toHaveBeenCalledTimes(1);
+  });
+
+  // A crash (or a failing save) mid-loop must not leave the order re-placeable: the
+  // supplier has already been contacted, and the webhook WILL be retried.
+  it('does not contact a supplier again after a crash mid-placement', async () => {
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service, supplierOrderRepo } = makeDeps([makeCheckoutItem()], {
+      mock: connector,
+    });
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+
+    // The supplier is contacted, then persisting the sub-order blows up.
+    supplierOrderRepo.save.mockRejectedValueOnce(new Error('db died'));
+    await expect(service.placeWithSuppliers(created.id)).rejects.toThrow(
+      'db died',
+    );
+    expect(placeSpy).toHaveBeenCalledTimes(1);
+
+    // TipTopPay retries the webhook. The supplier must NOT hear from us twice.
+    await service.placeWithSuppliers(created.id);
+    expect(placeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // Analytics / cart are not the money path: they must never fail the webhook, because a
+  // retry would (correctly) no-op on the idempotency claim and never clear the cart.
+  it('still resolves when the post-placement side effects throw', async () => {
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const { service, partnerProducts } = makeDeps([makeCheckoutItem()], {
+      mock: connector,
+    });
+    partnerProducts.recordOrder.mockRejectedValue(new Error('analytics down'));
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+    const placed = await service.placeWithSuppliers(created.id);
+
+    expect(placed.status).toBe(OrderStatus.PLACED);
+    expect(placed.supplierOrders[0].externalOrderId).toBe('EXT-1');
   });
 });
 
@@ -578,6 +668,26 @@ describe('OrdersService.pollActiveSupplierStatuses', () => {
     expect(orderRepo.findOne).not.toHaveBeenCalledWith({
       where: { id: 'order-2' },
     });
+  });
+
+  // aggregateOrderStatus([]) is CANCELLED; re-aggregation must never apply that to a
+  // live order whose sub-orders simply are not in the loaded relation.
+  it('re-aggregation never cancels an order with no sub-orders loaded', async () => {
+    const subs = [
+      {
+        id: 'sub-1',
+        orderId: 'order-1',
+        supplierCode: 'mock',
+        externalOrderId: 'EXT-1',
+        status: 'PLACED',
+      },
+    ];
+    const { service, orderRepo } = makePollDeps(subs, {
+      mock: new MockConnector('mock').setStatus('SHIPPED'),
+    });
+    await service.pollActiveSupplierStatuses();
+    // makePollDeps loads orders with supplierOrders: [] — the status must be left alone.
+    expect(orderRepo.save).not.toHaveBeenCalled();
   });
 
   it('skips sub-orders with no externalOrderId', async () => {

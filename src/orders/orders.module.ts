@@ -30,5 +30,7 @@ import { SettingsModule } from '../settings/settings.module';
     { provide: CART_CHECKOUT, useExisting: CartService },
   ],
   controllers: [OrdersController],
+  // PaymentsModule injects OrdersService to place the order once the Pay webhook lands.
+  exports: [OrdersService],
 })
 export class OrdersModule {}

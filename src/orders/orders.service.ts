@@ -189,17 +189,29 @@ export class OrdersService {
    * Place a paid order with its suppliers. Called from the TipTopPay `Pay` webhook —
    * never from checkout.
    *
-   * Idempotent: a retried webhook finds the order already out of AWAITING_PAYMENT and
-   * returns it untouched, so suppliers are never double-ordered.
+   * Idempotent by construction: the order is *claimed* with a compare-and-set
+   * (AWAITING_PAYMENT -> PAID) BEFORE any supplier is contacted. Only one caller can
+   * win that UPDATE, so concurrent webhook deliveries — and retries after a mid-loop
+   * crash, where the placement of supplier #1 is already on the wire — can never
+   * double-order from a supplier.
    */
   async placeWithSuppliers(orderId: string): Promise<Order> {
-    const order = await this.loadOrder(orderId);
-    if (order.status !== OrderStatus.AWAITING_PAYMENT) {
+    // Atomic claim: a conditional UPDATE, not a read-check-write. The DB decides the
+    // winner; everyone else sees affected = 0.
+    const claimed = await this.orderRepo.update(
+      { id: orderId, status: OrderStatus.AWAITING_PAYMENT },
+      { status: OrderStatus.PAID },
+    );
+    if (!claimed.affected) {
+      // Someone already claimed this order — a concurrent or replayed Pay webhook.
+      // Return it untouched: suppliers must never be contacted twice.
       this.logger.warn(
-        `placeWithSuppliers: order ${orderId} is already ${order.status} — skipping.`,
+        `placeWithSuppliers: order ${orderId} is already claimed — skipping.`,
       );
-      return order;
+      return this.loadOrder(orderId);
     }
+
+    const order = await this.loadOrder(orderId);
 
     // §4.4-4.6 — group the order's own item snapshots (not the live cart — it may have
     // changed or been cleared since checkout), place each group, aggregate status.
@@ -228,18 +240,29 @@ export class OrdersService {
       : aggregateOrderStatus(subOrders.map((s) => s.status));
     await this.orderRepo.save(order);
 
-    // §4.7 — analytics upsert + clear cart, now that the money is in.
-    for (const item of order.items ?? []) {
-      await this.partnerProducts.recordOrder({
-        supplierCode: item.supplierCode ?? '',
-        article: item.article ?? item.productSku,
-        brand: item.brand ?? '',
-        name: item.productName,
-        costPrice: Number(item.costPrice ?? 0),
-        sellPrice: Number(item.sellPrice ?? item.priceAtOrder),
-      });
+    // §4.7 — analytics upsert + clear cart, now that the money is in and the placement
+    // is committed. These are side effects, not part of the money path: if they throw,
+    // the webhook must still return 2xx, because a retry would (correctly) hit the
+    // idempotency claim above and no-op — leaving the cart uncleared forever.
+    try {
+      for (const item of order.items ?? []) {
+        await this.partnerProducts.recordOrder({
+          supplierCode: item.supplierCode ?? '',
+          article: item.article ?? item.productSku,
+          brand: item.brand ?? '',
+          name: item.productName,
+          costPrice: Number(item.costPrice ?? 0),
+          sellPrice: Number(item.sellPrice ?? item.priceAtOrder),
+        });
+      }
+      await this.cart.clearCart(order.userId);
+    } catch (err) {
+      this.logger.warn(
+        `post-placement side effects failed for order ${orderId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
-    await this.cart.clearCart(order.userId);
 
     return order;
   }
@@ -332,9 +355,13 @@ export class OrdersService {
 
   private async reaggregate(orderId: string): Promise<void> {
     const order = await this.loadOrder(orderId);
-    order.status = aggregateOrderStatus(
-      (order.supplierOrders ?? []).map((s) => s.status),
-    );
+    const subs = order.supplierOrders ?? [];
+    // aggregateOrderStatus([]) is CANCELLED by design (nothing placed => refund
+    // candidate), but that verdict is only meaningful right after placement. Re-running
+    // it on an order that has no sub-orders loaded/persisted (e.g. AWAITING_PAYMENT, or
+    // a relation that simply was not selected) would silently kill a live order.
+    if (!subs.length) return;
+    order.status = aggregateOrderStatus(subs.map((s) => s.status));
     await this.orderRepo.save(order);
   }
 
