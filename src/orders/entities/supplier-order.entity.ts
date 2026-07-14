@@ -44,6 +44,21 @@ export class SupplierOrder {
   @Column({ default: false })
   isTest: boolean;
 
+  /**
+   * When we last STARTED contacting this supplier — persisted BEFORE the connector call,
+   * never after. A row that is still NEW but carries an attemptedAt is ambiguous: the
+   * request may have reached the supplier and only the outcome write was lost. Such a row
+   * must never be auto-re-sent (see OrdersService.retrySupplierOrder).
+   */
+  @ApiProperty({
+    description:
+      'Момент начала обращения к поставщику (пишется ДО вызова API). NEW + attemptedAt = неизвестно, дошёл ли заказ — повтор запрещён.',
+    required: false,
+    nullable: true,
+  })
+  @Column({ type: 'timestamp', nullable: true, default: null })
+  attemptedAt: Date | null;
+
   @Column({ type: 'text', nullable: true, default: null })
   errorMessage: string | null;
 

@@ -9,7 +9,7 @@ import {
   NotImplementedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Not, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Not, Repository } from 'typeorm';
 import {
   DeliveryType,
   DeliveryTypeLabel,
@@ -196,13 +196,57 @@ export class OrdersService {
    * double-order from a supplier.
    */
   async placeWithSuppliers(orderId: string): Promise<Order> {
-    // Atomic claim: a conditional UPDATE, not a read-check-write. The DB decides the
-    // winner; everyone else sees affected = 0.
-    const claimed = await this.orderRepo.update(
-      { id: orderId, status: OrderStatus.AWAITING_PAYMENT },
-      { status: OrderStatus.PAID },
-    );
-    if (!claimed.affected) {
+    // ---- Transaction: claim + pre-create the sub-order rows, all or nothing. ----
+    //
+    // The claim alone is not enough: if we committed it and then died before/while the
+    // sub-order rows were written, the order would sit at PAID with zero or partial rows.
+    // The redelivered webhook would no-op on the claim, and the manager would have no row
+    // to retry — money taken, items never ordered, nothing to click.
+    //
+    // Bundling both in ONE transaction removes that hole: a rollback returns the order to
+    // AWAITING_PAYMENT with no rows, and the redelivered webhook simply claims it for the
+    // first time.
+    //
+    // !!! LOAD-BEARING: the supplier sends MUST stay strictly OUTSIDE and AFTER this
+    // transaction commits. Nothing inside this block may talk to a supplier. If someone
+    // moves sendSupplierOrder() in here, a rollback would un-claim an order whose supplier
+    // was ALREADY contacted, the redelivered webhook would claim it as fresh, and that
+    // supplier would receive the same order twice. Real money, real goods. Do not.
+    const claim = await this.orderRepo.manager.transaction(async (manager) => {
+      // Atomic claim: a conditional UPDATE, not a read-check-write. The DB decides the
+      // winner; everyone else sees affected = 0.
+      const claimed = await manager
+        .getRepository(Order)
+        .update(
+          { id: orderId, status: OrderStatus.AWAITING_PAYMENT },
+          { status: OrderStatus.PAID },
+        );
+      if (!claimed.affected) return null;
+
+      const order = await manager
+        .getRepository(Order)
+        .findOne({ where: { id: orderId } });
+      if (!order) throw new NotFoundException('Order not found.');
+
+      // §4.4-4.6 — group the order's own item snapshots (not the live cart — it may have
+      // changed or been cleared since checkout), place each group, aggregate status.
+      const groups = this.groupBySupplier(order);
+
+      // Every group gets a persisted sub-order row (status NEW) BEFORE any supplier is
+      // contacted. If we die halfway through the placement loop below, the un-reached
+      // groups are still visible to the manager as retryable NEW rows — otherwise they
+      // would have no row at all, the order would be stuck at PAID, and the customer's
+      // money would be taken for items nobody ever ordered.
+      const subOrders = await this.createSubOrders(
+        manager,
+        order.id,
+        groups,
+        order.isTest,
+      );
+      return { order, subOrders };
+    });
+
+    if (!claim) {
       // Someone already claimed this order — a concurrent or replayed Pay webhook.
       // Return it untouched: suppliers must never be contacted twice.
       this.logger.warn(
@@ -211,23 +255,9 @@ export class OrdersService {
       return this.loadOrder(orderId);
     }
 
-    const order = await this.loadOrder(orderId);
-
-    // §4.4-4.6 — group the order's own item snapshots (not the live cart — it may have
-    // changed or been cleared since checkout), place each group, aggregate status.
-    const groups = new Map<string, OrderItem[]>();
-    for (const item of order.items ?? []) {
-      const list = groups.get(item.supplierCode ?? '') ?? [];
-      list.push(item);
-      groups.set(item.supplierCode ?? '', list);
-    }
-
-    // Every group gets a persisted sub-order row (status NEW) BEFORE any supplier is
-    // contacted. If we die halfway through the placement loop below, the un-reached
-    // groups are still visible to the manager as retryable NEW rows — otherwise they
-    // would have no row at all, the order would be stuck at PAID, and the customer's
-    // money would be taken for items nobody ever ordered.
-    const subOrders = await this.createSubOrders(order.id, groups, order.isTest);
+    // ---- Committed. Only now may a supplier hear from us. ----
+    const { order, subOrders } = claim;
+    const groups = this.groupBySupplier(order);
 
     // Test mode: the rows exist, but no partner is ever contacted.
     if (!order.isTest) {
@@ -303,31 +333,48 @@ export class OrdersService {
     return orderItem;
   }
 
+  /** Group the order's immutable item snapshots by supplier code. */
+  private groupBySupplier(order: Order): Map<string, OrderItem[]> {
+    const groups = new Map<string, OrderItem[]>();
+    for (const item of order.items ?? []) {
+      const list = groups.get(item.supplierCode ?? '') ?? [];
+      list.push(item);
+      groups.set(item.supplierCode ?? '', list);
+    }
+    return groups;
+  }
+
   /**
    * Phase 1 of placement: persist one sub-order row per supplier group, all in status
    * NEW with no externalOrderId, before a single supplier is contacted.
+   *
+   * Runs inside the claim transaction (hence the explicit `manager`): either the order is
+   * claimed AND every group has a row, or neither happened.
    *
    * This is what makes a mid-placement crash recoverable: whatever happens next, every
    * group the customer paid for has a row a manager can see and retry.
    */
   private async createSubOrders(
+    manager: EntityManager,
     orderId: string,
     groups: Map<string, OrderItem[]>,
     isTest: boolean,
   ): Promise<SupplierOrder[]> {
+    const repo = manager.getRepository(SupplierOrder);
     const subs: SupplierOrder[] = [];
     for (const supplierCode of groups.keys()) {
-      const sub = this.supplierOrderRepo.create({
+      const sub = repo.create({
         orderId,
         supplierCode,
         status: 'NEW' as SupplierOrderStatusValue,
         externalOrderId: null,
+        attemptedAt: null,
         errorMessage: null,
         returnStatus: null,
         externalReturnId: null,
         isTest,
       });
-      subs.push(await this.supplierOrderRepo.save(sub));
+      subs.push(await repo.save(sub));
     }
     return subs;
   }
@@ -341,6 +388,15 @@ export class OrdersService {
     sub: SupplierOrder,
     items: OrderItem[],
   ): Promise<SupplierOrder> {
+    // Stamp the attempt BEFORE the wire, and COMMIT it. If the outcome write below is
+    // lost (crash, DB gone), the row stays NEW — but it now carries attemptedAt, which
+    // says "the supplier may already have this order". retrySupplierOrder() refuses such
+    // a row, so nobody can re-send it with a button click. Deliberately outside the
+    // try/catch: if this save fails we have NOT contacted anyone, so the row must stay a
+    // clean, retryable NEW rather than be marked FAILED.
+    sub.attemptedAt = new Date();
+    await this.supplierOrderRepo.save(sub);
+
     try {
       const connector = await this.suppliersRegistry.getByCode(
         sub.supplierCode,
@@ -480,6 +536,18 @@ export class OrdersService {
         'Only NEW or FAILED sub-orders can be retried.',
       );
     }
+    // A NEW row that already carries attemptedAt is AMBIGUOUS: we started talking to the
+    // supplier and never persisted the outcome, so the order may well be sitting in their
+    // system. Re-sending it would duplicate real goods. Only a human who has phoned the
+    // supplier can resolve this — refuse the button.
+    // (FAILED keeps its pre-existing, accepted ambiguity and stays retryable.)
+    if (sub.status === 'NEW' && sub.attemptedAt) {
+      throw new ConflictException(
+        'This sub-order was already sent to the supplier once, but the result was never saved. ' +
+          'The supplier may already have it. Confirm with the supplier by phone before re-sending: ' +
+          'if they do not have the order, mark this sub-order FAILED and retry; if they do, refresh its status instead.',
+      );
+    }
     const order = await this.loadOrder(orderId);
     const groupItems = (order.items ?? []).filter(
       (it) => it.supplierCode === sub.supplierCode,
@@ -522,7 +590,24 @@ export class OrdersService {
 
   // ---- Status / cancel / manager comments (existing) ----
 
+  /**
+   * Statuses owned by the payment flow, not by a human. AWAITING_PAYMENT is the
+   * idempotency token placeWithSuppliers() claims: letting a manager set it back would
+   * re-arm placement for any later webhook delivery and re-order everything from the
+   * suppliers. PAID is the claimed state and is only ever written by that claim.
+   */
+  private static readonly PAYMENT_OWNED_STATUSES: OrderStatus[] = [
+    OrderStatus.AWAITING_PAYMENT,
+    OrderStatus.PAID,
+  ];
+
   async updateStatus(id: string, status: OrderStatus): Promise<any> {
+    if (OrdersService.PAYMENT_OWNED_STATUSES.includes(status)) {
+      throw new BadRequestException(
+        `Status "${status}" is owned by the payment flow and cannot be set manually — ` +
+          'it would re-arm supplier placement and risk double-ordering.',
+      );
+    }
     const order = await this.orderRepo.findOne({ where: { id } });
     if (!order) throw new NotFoundException('Order not found.');
     order.status = status;

@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { OrdersService, aggregateOrderStatus } from './orders.service';
 import { DeliveryType, OrderStatus } from './entities/order.entity';
+import { SupplierOrder } from './entities/supplier-order.entity';
 import { MockConnector } from '../suppliers/connectors/mock/mock.connector';
 
 function makeCheckoutItem(over: Partial<any> = {}) {
@@ -51,13 +52,42 @@ function makeDeps(
     }),
   };
   let subSeq = 0;
+  // Rows actually committed to supplier_orders, so a test can assert what survives a
+  // rolled-back transaction.
+  const persistedSubs: any[] = [];
   const supplierOrderRepo = {
     create: jest.fn((data: any) => ({ ...data })),
     save: jest.fn(async (s: any) => {
       s.id = s.id ?? `sub-${++subSeq}`;
+      if (!persistedSubs.includes(s)) persistedSubs.push(s);
       return s;
     }),
     findOne: jest.fn(),
+  };
+  // A transaction fake with real rollback semantics: on throw, the order rows' fields and
+  // the supplier_orders table are restored to their pre-transaction state. Without that,
+  // the "rollback un-claims the order" test would be vacuous.
+  const txManager = {
+    getRepository: jest.fn((entity: any) =>
+      entity === SupplierOrder ? supplierOrderRepo : orderRepo,
+    ),
+  };
+  (orderRepo as any).manager = {
+    transaction: jest.fn(async (cb: (m: any) => Promise<any>) => {
+      const orderSnapshot = saved.map((o: any) => ({ row: o, ...o }));
+      const subsSnapshot = [...persistedSubs];
+      try {
+        return await cb(txManager);
+      } catch (err) {
+        for (const snap of orderSnapshot) {
+          const { row, ...fields } = snap;
+          Object.assign(row, fields);
+        }
+        persistedSubs.length = 0;
+        persistedSubs.push(...subsSnapshot);
+        throw err;
+      }
+    }),
   };
   const cart = {
     getCheckoutItems: jest.fn(async () => items),
@@ -88,6 +118,7 @@ function makeDeps(
     service,
     orderRepo,
     supplierOrderRepo,
+    persistedSubs,
     cart,
     registry,
     partnerProducts,
@@ -562,6 +593,82 @@ describe('OrdersService.placeWithSuppliers', () => {
     expect(rossko.externalOrderId).toBeNull();
   });
 
+  // FINDING 1 — the attempt marker must be on disk BEFORE the supplier hears from us.
+  // If it were written afterwards, a lost outcome-write would leave a bare NEW row and a
+  // manager could re-send an order the supplier already has.
+  it('persists attemptedAt on the row BEFORE calling the connector', async () => {
+    let rowAtContact: any = null;
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const { service, supplierOrderRepo } = makeDeps([makeCheckoutItem()], {
+      mock: connector,
+    });
+    jest.spyOn(connector, 'placeOrder').mockImplementation(async () => {
+      // Snapshot what the LAST save() actually committed at the moment of contact.
+      const calls = supplierOrderRepo.save.mock.calls;
+      const last = calls[calls.length - 1][0];
+      rowAtContact = { status: last.status, attemptedAt: last.attemptedAt };
+      return { externalOrderId: 'EXT-1', status: 'PLACED' as const };
+    });
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+    await service.placeWithSuppliers(created.id);
+
+    expect(rowAtContact).not.toBeNull();
+    expect(rowAtContact.attemptedAt).toBeInstanceOf(Date);
+    // Still NEW at that point: only the marker is committed, not an outcome.
+    expect(rowAtContact.status).toBe('NEW');
+  });
+
+  // FINDING 2 — claim + sub-order inserts are one transaction. A rollback must un-claim
+  // the order (back to AWAITING_PAYMENT, zero rows) so the redelivered webhook can place
+  // it for the first time. Safe precisely because no supplier is contacted inside the tx.
+  it('rolls the claim back when the sub-order insert fails, and a later webhook places normally', async () => {
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service, supplierOrderRepo, persistedSubs, orderRepo } = makeDeps(
+      [makeCheckoutItem()],
+      { mock: connector },
+    );
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+
+    // The pre-create insert (the only save with a null attemptedAt) blows up.
+    const realSave = supplierOrderRepo.save.getMockImplementation()!;
+    supplierOrderRepo.save.mockImplementation(async (s: any) => {
+      if (s.attemptedAt == null) throw new Error('db died');
+      return realSave(s);
+    });
+
+    await expect(service.placeWithSuppliers(created.id)).rejects.toThrow(
+      'db died',
+    );
+
+    // No supplier was contacted inside the transaction, so un-claiming is safe.
+    expect(placeSpy).not.toHaveBeenCalled();
+    const row = await orderRepo.findOne();
+    expect(row.status).toBe(OrderStatus.AWAITING_PAYMENT);
+    expect(persistedSubs).toHaveLength(0);
+
+    // TipTopPay redelivers the webhook. The order is still claimable — place normally.
+    supplierOrderRepo.save.mockImplementation(realSave);
+    const placed = await service.placeWithSuppliers(created.id);
+
+    expect(placed.status).toBe(OrderStatus.PLACED);
+    expect(placeSpy).toHaveBeenCalledTimes(1);
+    expect(placed.supplierOrders).toHaveLength(1);
+    expect(placed.supplierOrders[0].externalOrderId).toBe('EXT-1');
+  });
+
   // Sanity: a connector that throws is caught per-group and never costs the other group
   // its row.
   it('persists a row for both groups when the first connector throws', async () => {
@@ -698,6 +805,93 @@ describe('OrdersService manager controls', () => {
     await service.retrySupplierOrder('order-1', 'sub-1');
     expect(sub.status).toBe('PLACED');
     expect(sub.externalOrderId).toBe('EXT-4');
+  });
+
+  // FINDING 1 — a NEW row that carries attemptedAt means "we started talking to this
+  // supplier and never saved the outcome". They may already have the order. The retry
+  // button must refuse it: a human has to phone the supplier first.
+  it('retry refuses a NEW sub-order that was already attempted (ambiguous)', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'NEW',
+      attemptedAt: new Date('2026-07-14T10:00:00Z'),
+      errorMessage: null,
+    };
+    const connector = new MockConnector();
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service } = makeServiceWithSub(sub, connector, [
+      {
+        supplierCode: 'mock',
+        article: 'A1',
+        brand: 'BOSCH',
+        warehouseId: 'w1',
+        quantity: 1,
+        raw: {},
+      },
+    ]);
+    await expect(
+      service.retrySupplierOrder('order-1', 'sub-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      service.retrySupplierOrder('order-1', 'sub-1'),
+    ).rejects.toThrow(/supplier/i);
+    expect(placeSpy).not.toHaveBeenCalled();
+    expect(sub.status).toBe('NEW');
+  });
+
+  // ...while a NEW row with no attemptedAt was demonstrably never sent, and stays retryable.
+  it('retry still places a NEW sub-order with no attemptedAt', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'NEW',
+      attemptedAt: null,
+      errorMessage: null,
+    };
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-5',
+      status: 'PLACED',
+    });
+    const { service } = makeServiceWithSub(sub, connector, [
+      {
+        supplierCode: 'mock',
+        article: 'A1',
+        brand: 'BOSCH',
+        warehouseId: 'w1',
+        quantity: 1,
+        raw: {},
+      },
+    ]);
+    await service.retrySupplierOrder('order-1', 'sub-1');
+    expect(sub.status).toBe('PLACED');
+    expect(sub.externalOrderId).toBe('EXT-5');
+    // The retry itself stamps the attempt before contacting the supplier.
+    expect(sub.attemptedAt).toBeInstanceOf(Date);
+  });
+
+  // FINDING 3 — awaiting_payment / paid are the payment flow's idempotency token. A
+  // manager who could set awaiting_payment back would re-arm placeWithSuppliers() for any
+  // later webhook delivery and double-order from every supplier.
+  it('updateStatus rejects payment-owned statuses and still accepts the rest', async () => {
+    const sub = { id: 'sub-1', orderId: 'order-1', supplierCode: 'mock', status: 'PLACED' };
+    const { service, orderRepo } = makeServiceWithSub(sub, new MockConnector());
+
+    await expect(
+      service.updateStatus('order-1', OrderStatus.AWAITING_PAYMENT),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.updateStatus('order-1', OrderStatus.PAID),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(orderRepo.save).not.toHaveBeenCalled();
+
+    const updated = await service.updateStatus('order-1', OrderStatus.DELIVERED);
+    expect(updated.status).toBe(OrderStatus.DELIVERED);
+    expect(orderRepo.save).toHaveBeenCalled();
   });
 
   // Still no re-placing of a sub-order that is already at the supplier.
