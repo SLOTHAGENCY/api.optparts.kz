@@ -38,16 +38,19 @@ import {
 import { SuppliersService } from '../suppliers/suppliers.service';
 import { RateLimiterRegistry } from '../suppliers/rate-limiter.registry';
 
-/** Aggregate the order status from its sub-order statuses (Spec C §4.6). */
+/**
+ * Aggregate the order status from its sub-order statuses (Spec C §4.6).
+ *
+ * Nothing placed (empty list, or every group failed) means the order is dead: the
+ * customer has paid and the manager must see it as a refund candidate, so it lands in
+ * CANCELLED rather than the misleading PARTIALLY_PLACED.
+ */
 export function aggregateOrderStatus(
   statuses: SupplierOrderStatusValue[],
 ): OrderStatus {
-  if (statuses.length > 0 && statuses.every((s) => s === 'PLACED')) {
-    return OrderStatus.PLACED;
-  }
-  if (statuses.some((s) => s === 'FAILED')) {
-    return OrderStatus.PARTIALLY_PLACED;
-  }
+  if (statuses.length === 0) return OrderStatus.CANCELLED;
+  if (statuses.every((s) => s === 'FAILED')) return OrderStatus.CANCELLED;
+  if (statuses.some((s) => s === 'FAILED')) return OrderStatus.PARTIALLY_PLACED;
   return OrderStatus.PLACED;
 }
 
@@ -165,7 +168,9 @@ export class OrdersService {
       recipientName: dto.recipientName ?? null,
       recipientPhone: dto.recipientPhone ?? null,
       customerComment: dto.customerComment ?? null,
-      status: OrderStatus.NEW,
+      // Payment first: the order waits for the TipTopPay webhook before anything is sent
+      // to suppliers. PaymentsService.handlePayWebhook() calls placeWithSuppliers().
+      status: OrderStatus.AWAITING_PAYMENT,
       isTest,
       totalAmount: items.reduce(
         (sum, i) => sum + i.currentPrice * i.quantity,
@@ -175,39 +180,68 @@ export class OrdersService {
     });
     const saved = await this.orderRepo.save(order);
 
-    // §4.4-4.6 — group by supplier, place each group, aggregate status.
-    const groups = new Map<string, CheckoutItem[]>();
-    for (const item of items) {
-      const list = groups.get(item.supplierCode) ?? [];
-      list.push(item);
-      groups.set(item.supplierCode, list);
+    // The cart is NOT cleared here: the customer may abandon the payment, and their cart
+    // must survive. It is cleared in placeWithSuppliers(), once the money is in.
+    return this.withLabelPublic(saved);
+  }
+
+  /**
+   * Place a paid order with its suppliers. Called from the TipTopPay `Pay` webhook —
+   * never from checkout.
+   *
+   * Idempotent: a retried webhook finds the order already out of AWAITING_PAYMENT and
+   * returns it untouched, so suppliers are never double-ordered.
+   */
+  async placeWithSuppliers(orderId: string): Promise<Order> {
+    const order = await this.loadOrder(orderId);
+    if (order.status !== OrderStatus.AWAITING_PAYMENT) {
+      this.logger.warn(
+        `placeWithSuppliers: order ${orderId} is already ${order.status} — skipping.`,
+      );
+      return order;
     }
+
+    // §4.4-4.6 — group the order's own item snapshots (not the live cart — it may have
+    // changed or been cleared since checkout), place each group, aggregate status.
+    const groups = new Map<string, OrderItem[]>();
+    for (const item of order.items ?? []) {
+      const list = groups.get(item.supplierCode ?? '') ?? [];
+      list.push(item);
+      groups.set(item.supplierCode ?? '', list);
+    }
+
     const subOrders: SupplierOrder[] = [];
     for (const [supplierCode, groupItems] of groups) {
       subOrders.push(
-        await this.placeSupplierOrder(saved.id, supplierCode, groupItems, isTest),
+        await this.placeSupplierOrder(
+          order.id,
+          supplierCode,
+          groupItems,
+          order.isTest,
+        ),
       );
     }
-    saved.supplierOrders = subOrders;
-    saved.status = isTest
-      ? OrderStatus.NEW
-      : aggregateOrderStatus(subOrders.map((s) => s.status));
-    await this.orderRepo.save(saved);
 
-    // §4.7 — analytics upsert + clear cart.
-    for (const item of items) {
+    order.supplierOrders = subOrders;
+    order.status = order.isTest
+      ? OrderStatus.PAID
+      : aggregateOrderStatus(subOrders.map((s) => s.status));
+    await this.orderRepo.save(order);
+
+    // §4.7 — analytics upsert + clear cart, now that the money is in.
+    for (const item of order.items ?? []) {
       await this.partnerProducts.recordOrder({
-        supplierCode: item.supplierCode,
-        article: item.article,
-        brand: item.brand,
+        supplierCode: item.supplierCode ?? '',
+        article: item.article ?? item.productSku,
+        brand: item.brand ?? '',
         name: item.productName,
-        costPrice: item.costPrice,
-        sellPrice: item.currentPrice,
+        costPrice: Number(item.costPrice ?? 0),
+        sellPrice: Number(item.sellPrice ?? item.priceAtOrder),
       });
     }
-    await this.cart.clearCart(userId);
+    await this.cart.clearCart(order.userId);
 
-    return this.withLabelPublic(saved);
+    return order;
   }
 
   private buildOrderItem(item: CheckoutItem): OrderItem {
@@ -234,7 +268,7 @@ export class OrdersService {
   private async placeSupplierOrder(
     orderId: string,
     supplierCode: string,
-    items: CheckoutItem[],
+    items: OrderItem[],
     isTest = false,
   ): Promise<SupplierOrder> {
     const sub = this.supplierOrderRepo.create({
@@ -272,13 +306,14 @@ export class OrdersService {
     return this.supplierOrderRepo.save(sub);
   }
 
-  private toPlaceOrderItems(items: CheckoutItem[]): PlaceOrderItem[] {
+  /** Map immutable order-item snapshots to the connector's placeOrder payload. */
+  private toPlaceOrderItems(items: OrderItem[]): PlaceOrderItem[] {
     return items.map((i) => ({
-      article: i.article,
-      brand: i.brand,
-      warehouseId: i.warehouseId,
+      article: i.article ?? i.productSku,
+      brand: i.brand ?? '',
+      warehouseId: i.warehouseId ?? '',
       quantity: i.quantity,
-      raw: i.raw,
+      raw: i.raw ?? {},
     }));
   }
 
@@ -381,13 +416,7 @@ export class OrdersService {
     const groupItems = (order.items ?? []).filter(
       (it) => it.supplierCode === sub.supplierCode,
     );
-    const placeItems: PlaceOrderItem[] = groupItems.map((it) => ({
-      article: it.article ?? '',
-      brand: it.brand ?? '',
-      warehouseId: it.warehouseId ?? '',
-      quantity: it.quantity,
-      raw: it.raw ?? {},
-    }));
+    const placeItems: PlaceOrderItem[] = this.toPlaceOrderItems(groupItems);
     try {
       const connector = await this.suppliersRegistry.getByCode(sub.supplierCode);
       const supplier = await this.suppliersService.findByCode(sub.supplierCode);

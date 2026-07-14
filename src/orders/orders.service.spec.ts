@@ -84,17 +84,30 @@ function makeDeps(
 }
 
 describe('aggregateOrderStatus', () => {
-  it('all PLACED => PLACED', () => {
+  it('returns PLACED when every sub-order was placed', () => {
     expect(aggregateOrderStatus(['PLACED', 'PLACED'])).toBe(OrderStatus.PLACED);
   });
-  it('any FAILED => PARTIALLY_PLACED', () => {
+
+  it('returns PARTIALLY_PLACED when some placed and some failed', () => {
     expect(aggregateOrderStatus(['PLACED', 'FAILED'])).toBe(
       OrderStatus.PARTIALLY_PLACED,
     );
   });
+
+  // Money is on the line: nothing was placed, so the order is dead and the manager
+  // must see it as a refund candidate — not as "partially placed".
+  it('returns CANCELLED when every sub-order failed', () => {
+    expect(aggregateOrderStatus(['FAILED', 'FAILED'])).toBe(
+      OrderStatus.CANCELLED,
+    );
+  });
+
+  it('returns CANCELLED for an empty list', () => {
+    expect(aggregateOrderStatus([])).toBe(OrderStatus.CANCELLED);
+  });
 });
 
-describe('OrdersService.create', () => {
+describe('OrdersService.create — payment first', () => {
   it('throws 409 when an item is unavailable or price changed', async () => {
     const { service } = makeDeps([makeCheckoutItem({ available: false })], {
       mock: new MockConnector(),
@@ -104,75 +117,41 @@ describe('OrdersService.create', () => {
     );
   });
 
-  it('places all sub-orders and sets Order.PLACED, upserts analytics, clears cart', async () => {
-    const mock = new MockConnector().setOrderResult({
-      externalOrderId: 'EXT-1',
-      status: 'PLACED',
+  it('creates the order in awaiting_payment and does NOT contact suppliers', async () => {
+    const connector = new MockConnector();
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service, supplierOrderRepo } = makeDeps([makeCheckoutItem()], {
+      mock: connector,
     });
+
+    const order = await service.create('user-1', {
+      deliveryType: DeliveryType.DELIVERY,
+      addressId: 'addr-1',
+    } as any);
+
+    expect(order.status).toBe(OrderStatus.AWAITING_PAYMENT);
+    expect(placeSpy).not.toHaveBeenCalled();
+    expect(supplierOrderRepo.save).not.toHaveBeenCalled();
+  });
+
+  // The customer may close the tab before paying — their cart must survive.
+  it('does not clear the cart at creation time', async () => {
     const { service, cart, partnerProducts } = makeDeps([makeCheckoutItem()], {
-      mock,
+      mock: new MockConnector(),
     });
-    const order = await service.create('u1', { deliveryType: DeliveryType.PICKUP });
-    expect(order.status).toBe(OrderStatus.PLACED);
-    expect(order.supplierOrders).toHaveLength(1);
-    expect(order.supplierOrders[0].externalOrderId).toBe('EXT-1');
-    expect(partnerProducts.recordOrder).toHaveBeenCalledTimes(1);
-    expect(cart.clearCart).toHaveBeenCalledWith('u1');
-  });
 
-  it('marks Order.PARTIALLY_PLACED when one partner has no order API', async () => {
-    const ok = new MockConnector('mock', 'Mock').setOrderResult({
-      externalOrderId: 'EXT-1',
-      status: 'PLACED',
-    });
-    const failing = new MockConnector('rossko', 'Rossko').failWith(
-      new Error('No order API'),
-    );
-    const { service } = makeDeps(
-      [
-        makeCheckoutItem({ supplierCode: 'mock' }),
-        makeCheckoutItem({ supplierCode: 'rossko', warehouseId: 'w2' }),
-      ],
-      { mock: ok, rossko: failing },
-    );
-    const order = await service.create('u1', { deliveryType: DeliveryType.PICKUP });
-    expect(order.status).toBe(OrderStatus.PARTIALLY_PLACED);
-    const failed = order.supplierOrders.find(
-      (s: any) => s.supplierCode === 'rossko',
-    );
-    expect(failed.status).toBe('FAILED');
-    expect(failed.errorMessage).toBeTruthy();
-  });
+    await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
 
-  it('test mode: does not call placeOrder; saves order+sub as NEW and isTest', async () => {
-    const mock = new MockConnector().setOrderResult({
-      externalOrderId: 'EXT-1',
-      status: 'PLACED',
-    });
-    const spy = jest.spyOn(mock, 'placeOrder');
-    const { service, cart, partnerProducts } = makeDeps(
-      [makeCheckoutItem()],
-      { mock },
-      'test',
-    );
-    const order = await service.create('u1', { deliveryType: DeliveryType.PICKUP });
-    expect(spy).not.toHaveBeenCalled();
-    expect(order.isTest).toBe(true);
-    expect(order.status).toBe(OrderStatus.NEW);
-    expect(order.supplierOrders).toHaveLength(1);
-    expect(order.supplierOrders[0].status).toBe('NEW');
-    expect(order.supplierOrders[0].externalOrderId).toBeNull();
-    expect(order.supplierOrders[0].isTest).toBe(true);
-    expect(partnerProducts.recordOrder).toHaveBeenCalledTimes(1);
-    expect(cart.clearCart).toHaveBeenCalledWith('u1');
+    expect(cart.clearCart).not.toHaveBeenCalled();
+    expect(partnerProducts.recordOrder).not.toHaveBeenCalled();
   });
 
   it('snapshots order items independent of live offers', async () => {
-    const mock = new MockConnector().setOrderResult({
-      externalOrderId: 'EXT-1',
-      status: 'PLACED',
+    const { service } = makeDeps([makeCheckoutItem()], {
+      mock: new MockConnector(),
     });
-    const { service } = makeDeps([makeCheckoutItem()], { mock });
     const order = await service.create('u1', { deliveryType: DeliveryType.PICKUP });
     const item = order.items[0];
     expect(item.supplierCode).toBe('mock');
@@ -180,6 +159,19 @@ describe('OrdersService.create', () => {
     expect(item.sellPrice).toBe(6000);
     expect(item.subtotal).toBe(6000);
     expect(item.productId).toBeNull();
+  });
+
+  it('flags the order as isTest in test mode', async () => {
+    const { service } = makeDeps(
+      [makeCheckoutItem()],
+      { mock: new MockConnector() },
+      'test',
+    );
+    const order = await service.create('u1', {
+      deliveryType: DeliveryType.PICKUP,
+    });
+    expect(order.isTest).toBe(true);
+    expect(order.status).toBe(OrderStatus.AWAITING_PAYMENT);
   });
 
   it('requires an addressId for delivery', async () => {
@@ -251,6 +243,121 @@ describe('OrdersService.create', () => {
     expect(addresses.findOne).not.toHaveBeenCalled();
     expect(order.deliveryType).toBe(DeliveryType.PICKUP);
     expect(order.addressId).toBeNull();
+  });
+});
+
+describe('OrdersService.placeWithSuppliers', () => {
+  it('places every supplier group, clears the cart and marks the order placed', async () => {
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const { service, cart, supplierOrderRepo, partnerProducts } = makeDeps(
+      [makeCheckoutItem()],
+      { mock: connector },
+    );
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+
+    const placed = await service.placeWithSuppliers(created.id);
+
+    expect(supplierOrderRepo.save).toHaveBeenCalled();
+    expect(placed.status).toBe(OrderStatus.PLACED);
+    expect(placed.supplierOrders).toHaveLength(1);
+    expect(placed.supplierOrders[0].externalOrderId).toBe('EXT-1');
+    expect(cart.clearCart).toHaveBeenCalledWith('user-1');
+    expect(partnerProducts.recordOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the order PARTIALLY_PLACED when one partner has no order API', async () => {
+    const ok = new MockConnector('mock', 'Mock').setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const failing = new MockConnector('rossko', 'Rossko').failWith(
+      new Error('No order API'),
+    );
+    const { service } = makeDeps(
+      [
+        makeCheckoutItem({ supplierCode: 'mock' }),
+        makeCheckoutItem({ supplierCode: 'rossko', warehouseId: 'w2' }),
+      ],
+      { mock: ok, rossko: failing },
+    );
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+    const placed = await service.placeWithSuppliers(created.id);
+
+    expect(placed.status).toBe(OrderStatus.PARTIALLY_PLACED);
+    const failed = (placed.supplierOrders ?? []).find(
+      (s: any) => s.supplierCode === 'rossko',
+    );
+    expect(failed!.status).toBe('FAILED');
+    expect(failed!.errorMessage).toBeTruthy();
+  });
+
+  it('cancels the order when every supplier fails', async () => {
+    const connector = new MockConnector();
+    jest
+      .spyOn(connector, 'placeOrder')
+      .mockRejectedValue(new Error('supplier down'));
+    const { service } = makeDeps([makeCheckoutItem()], { mock: connector });
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+
+    const placed = await service.placeWithSuppliers(created.id);
+
+    expect(placed.status).toBe(OrderStatus.CANCELLED);
+  });
+
+  it('is a no-op when the order was already placed (webhook retry)', async () => {
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service, cart } = makeDeps([makeCheckoutItem()], {
+      mock: connector,
+    });
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+
+    await service.placeWithSuppliers(created.id);
+    const callsAfterFirst = placeSpy.mock.calls.length;
+    await service.placeWithSuppliers(created.id);
+
+    expect(placeSpy.mock.calls.length).toBe(callsAfterFirst);
+    expect(cart.clearCart).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips suppliers in test mode', async () => {
+    const connector = new MockConnector();
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service } = makeDeps(
+      [makeCheckoutItem()],
+      { mock: connector },
+      'test',
+    );
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+    const placed = await service.placeWithSuppliers(created.id);
+
+    expect(placeSpy).not.toHaveBeenCalled();
+    expect(placed.status).toBe(OrderStatus.PAID);
+    expect(placed.supplierOrders).toHaveLength(1);
+    expect(placed.supplierOrders[0].status).toBe('NEW');
+    expect(placed.supplierOrders[0].externalOrderId).toBeNull();
+    expect(placed.supplierOrders[0].isTest).toBe(true);
   });
 });
 
