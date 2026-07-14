@@ -99,7 +99,14 @@ export class OrdersService {
 
   async findAll(): Promise<any[]> {
     const orders = await this.orderRepo.find({ order: { createdAt: 'DESC' } });
-    return orders.map(this.withLabel);
+    const names = await this.supplierNameMap();
+    return orders.map((o) => this.withLabel(o, names));
+  }
+
+  /** code -> human-readable supplier name, for labelling items in the admin view. */
+  private async supplierNameMap(): Promise<Map<string, string>> {
+    const suppliers = await this.suppliersService.findAll();
+    return new Map(suppliers.map((s) => [s.code, s.name]));
   }
 
   private async loadOrder(id: string): Promise<Order> {
@@ -479,11 +486,22 @@ export class OrdersService {
   }
 
   // Arrow properties so they keep `this` when passed to Array.map.
-  /** Manager view: keeps costPrice (margin) on items. */
-  private withLabel = (order: Order) => ({
+  /**
+   * Manager view: keeps costPrice (margin) on items and stamps a readable
+   * supplierName onto each item / sub-order (falls back to the raw code).
+   */
+  private withLabel = (order: Order, names?: Map<string, string>) => ({
     ...order,
     statusLabel: OrderStatusLabel[order.status],
     deliveryTypeLabel: DeliveryTypeLabel[order.deliveryType],
+    items: (order.items ?? []).map((it) => ({
+      ...it,
+      supplierName: names?.get(it.supplierCode) ?? it.supplierCode,
+    })),
+    supplierOrders: (order.supplierOrders ?? []).map((so) => ({
+      ...so,
+      supplierName: names?.get(so.supplierCode) ?? so.supplierCode,
+    })),
   });
 
   /** Buyer view: strips costPrice from items so we never expose our margin. */

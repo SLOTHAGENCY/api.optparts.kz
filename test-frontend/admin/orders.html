@@ -23,7 +23,7 @@
       o.items.forEach((i) => {
         const tr = document.createElement('tr');
         tr.innerHTML = '<td>' + (i.brand || '') + '</td><td>' + (i.productName || '') + '</td>' +
-          '<td>' + (i.supplierCode || '') + '</td><td>' + money(i.sellPrice) + '</td>' +
+          '<td>' + (i.supplierName || i.supplierCode || '') + '</td><td>' + money(i.sellPrice) + '</td>' +
           '<td>' + i.quantity + '</td><td>' + money(i.subtotal) + '</td>';
         tb.appendChild(tr);
       });
@@ -43,7 +43,7 @@
       const tb = document.createElement('tbody');
       o.supplierOrders.forEach((s) => {
         const tr = document.createElement('tr');
-        tr.innerHTML = '<td>' + (s.supplierCode || '') + '</td><td>' + (s.status || '') + '</td>' +
+        tr.innerHTML = '<td>' + (s.supplierName || s.supplierCode || '') + '</td><td>' + (s.status || '') + '</td>' +
           '<td>' + (s.externalOrderId || '—') + '</td><td>' + (s.returnStatus || '—') + '</td>' +
           '<td class="gone">' + (s.errorMessage || '') + '</td>';
         tb.appendChild(tr);
