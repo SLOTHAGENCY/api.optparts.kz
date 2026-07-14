@@ -417,8 +417,14 @@ describe('OrdersService.placeWithSuppliers', () => {
       deliveryType: DeliveryType.PICKUP,
     } as any);
 
-    // The supplier is contacted, then persisting the sub-order blows up.
-    supplierOrderRepo.save.mockRejectedValueOnce(new Error('db died'));
+    // The supplier is contacted, then persisting the placement outcome blows up. (The
+    // NEW row pre-created before any contact still persists fine — the crash is on the
+    // save that carries the result back.)
+    supplierOrderRepo.save.mockImplementation(async (s: any) => {
+      if (s.status !== 'NEW') throw new Error('db died');
+      s.id = s.id ?? 'sub-1';
+      return s;
+    });
     await expect(service.placeWithSuppliers(created.id)).rejects.toThrow(
       'db died',
     );
@@ -436,7 +442,7 @@ describe('OrdersService.placeWithSuppliers', () => {
       externalOrderId: 'EXT-1',
       status: 'PLACED',
     });
-    const { service, partnerProducts } = makeDeps([makeCheckoutItem()], {
+    const { service, partnerProducts, cart } = makeDeps([makeCheckoutItem()], {
       mock: connector,
     });
     partnerProducts.recordOrder.mockRejectedValue(new Error('analytics down'));
@@ -448,6 +454,139 @@ describe('OrdersService.placeWithSuppliers', () => {
 
     expect(placed.status).toBe(OrderStatus.PLACED);
     expect(placed.supplierOrders[0].externalOrderId).toBe('EXT-1');
+    // The whole point: a failing analytics write must not swallow the cart clear. The
+    // customer has paid; a webhook retry no-ops on the claim, so this is the only chance
+    // to empty their cart — otherwise they keep the paid-for items and re-buy them.
+    expect(cart.clearCart).toHaveBeenCalledWith('user-1');
+  });
+
+  // A cart failure is equally non-fatal, and must not hide the analytics write either.
+  it('still resolves when clearCart throws', async () => {
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const { service, cart, partnerProducts } = makeDeps([makeCheckoutItem()], {
+      mock: connector,
+    });
+    cart.clearCart.mockRejectedValue(new Error('redis down'));
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+    const placed = await service.placeWithSuppliers(created.id);
+
+    expect(placed.status).toBe(OrderStatus.PLACED);
+    expect(partnerProducts.recordOrder).toHaveBeenCalledTimes(1);
+  });
+
+  // Every supplier group must have a persisted, visible row BEFORE anyone is contacted —
+  // otherwise a crash mid-loop leaves the un-reached groups with no row at all, and the
+  // manager has nothing to retry on an order the customer has already paid for.
+  it('persists a NEW sub-order row for every supplier group before contacting any supplier', async () => {
+    let codesPersistedAtFirstContact: string[] = [];
+    const ok = new MockConnector('mock', 'Mock').setOrderResult({
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    });
+    const other = new MockConnector('rossko', 'Rossko').setOrderResult({
+      externalOrderId: 'EXT-2',
+      status: 'PLACED',
+    });
+    const { service, supplierOrderRepo } = makeDeps(
+      [
+        makeCheckoutItem({ supplierCode: 'mock' }),
+        makeCheckoutItem({ supplierCode: 'rossko', warehouseId: 'w2' }),
+      ],
+      { mock: ok, rossko: other },
+    );
+    jest.spyOn(ok, 'placeOrder').mockImplementation(async () => {
+      codesPersistedAtFirstContact = supplierOrderRepo.save.mock.calls.map(
+        (c: any[]) => c[0].supplierCode,
+      );
+      return { externalOrderId: 'EXT-1', status: 'PLACED' as const };
+    });
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+    await service.placeWithSuppliers(created.id);
+
+    expect(codesPersistedAtFirstContact).toContain('mock');
+    expect(codesPersistedAtFirstContact).toContain('rossko');
+  });
+
+  // The crash the pre-created rows exist for: the DB blows up while persisting the first
+  // group's placement result. The second group was never contacted — but its row must
+  // already be there, in NEW, for the manager to retry.
+  it('leaves a retryable row for a supplier group never reached because of a crash', async () => {
+    const failing = new MockConnector('mock', 'Mock').failWith(
+      new Error('supplier down'),
+    );
+    const other = new MockConnector('rossko', 'Rossko').setOrderResult({
+      externalOrderId: 'EXT-2',
+      status: 'PLACED',
+    });
+    const { service, supplierOrderRepo } = makeDeps(
+      [
+        makeCheckoutItem({ supplierCode: 'mock' }),
+        makeCheckoutItem({ supplierCode: 'rossko', warehouseId: 'w2' }),
+      ],
+      { mock: failing, rossko: other },
+    );
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+
+    // Persisting the *outcome* of the first group (status FAILED, already contacted)
+    // dies. Pre-created NEW rows still save fine.
+    supplierOrderRepo.save.mockImplementation(async (s: any) => {
+      if (s.supplierCode === 'mock' && s.status !== 'NEW') {
+        throw new Error('db died');
+      }
+      s.id = s.id ?? `sub-${s.supplierCode}`;
+      return s;
+    });
+
+    await expect(service.placeWithSuppliers(created.id)).rejects.toThrow(
+      'db died',
+    );
+
+    // Both groups have a persisted supplier_orders row; the un-reached one is NEW, so
+    // retrySupplierOrder() can pick it up.
+    const persisted = supplierOrderRepo.save.mock.calls.map((c: any[]) => c[0]);
+    const rossko = persisted.find((s: any) => s.supplierCode === 'rossko');
+    expect(rossko).toBeDefined();
+    expect(rossko.status).toBe('NEW');
+    expect(rossko.externalOrderId).toBeNull();
+  });
+
+  // Sanity: a connector that throws is caught per-group and never costs the other group
+  // its row.
+  it('persists a row for both groups when the first connector throws', async () => {
+    const failing = new MockConnector('mock', 'Mock').failWith(
+      new Error('supplier down'),
+    );
+    const other = new MockConnector('rossko', 'Rossko').setOrderResult({
+      externalOrderId: 'EXT-2',
+      status: 'PLACED',
+    });
+    const { service } = makeDeps(
+      [
+        makeCheckoutItem({ supplierCode: 'mock' }),
+        makeCheckoutItem({ supplierCode: 'rossko', warehouseId: 'w2' }),
+      ],
+      { mock: failing, rossko: other },
+    );
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+    const placed = await service.placeWithSuppliers(created.id);
+
+    expect(placed.supplierOrders).toHaveLength(2);
+    expect(placed.status).toBe(OrderStatus.PARTIALLY_PLACED);
   });
 });
 
@@ -528,6 +667,55 @@ describe('OrdersService manager controls', () => {
     await service.retrySupplierOrder('order-1', 'sub-1');
     expect(sub.status).toBe('PLACED');
     expect(sub.externalOrderId).toBe('EXT-2');
+  });
+
+  // A NEW row is a group that was pre-created but never reached (crash mid-placement).
+  // The customer has paid for it, so the manager must be able to send it to the supplier.
+  it('retry places a NEW sub-order that was never reached', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'NEW',
+      errorMessage: null,
+    };
+    const items = [
+      {
+        supplierCode: 'mock',
+        article: 'A1',
+        brand: 'BOSCH',
+        warehouseId: 'w1',
+        quantity: 1,
+        raw: {},
+      },
+    ];
+    const connector = new MockConnector().setOrderResult({
+      externalOrderId: 'EXT-4',
+      status: 'PLACED',
+    });
+    const { service } = makeServiceWithSub(sub, connector, items);
+    await service.retrySupplierOrder('order-1', 'sub-1');
+    expect(sub.status).toBe('PLACED');
+    expect(sub.externalOrderId).toBe('EXT-4');
+  });
+
+  // Still no re-placing of a sub-order that is already at the supplier.
+  it('retry refuses a sub-order that is already PLACED', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: 'EXT-1',
+      status: 'PLACED',
+    };
+    const connector = new MockConnector();
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service } = makeServiceWithSub(sub, connector);
+    await expect(
+      service.retrySupplierOrder('order-1', 'sub-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(placeSpy).not.toHaveBeenCalled();
   });
 
   it('retry routes placeOrder through the rate limiter gate', async () => {

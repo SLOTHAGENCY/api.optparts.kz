@@ -222,16 +222,18 @@ export class OrdersService {
       groups.set(item.supplierCode ?? '', list);
     }
 
-    const subOrders: SupplierOrder[] = [];
-    for (const [supplierCode, groupItems] of groups) {
-      subOrders.push(
-        await this.placeSupplierOrder(
-          order.id,
-          supplierCode,
-          groupItems,
-          order.isTest,
-        ),
-      );
+    // Every group gets a persisted sub-order row (status NEW) BEFORE any supplier is
+    // contacted. If we die halfway through the placement loop below, the un-reached
+    // groups are still visible to the manager as retryable NEW rows — otherwise they
+    // would have no row at all, the order would be stuck at PAID, and the customer's
+    // money would be taken for items nobody ever ordered.
+    const subOrders = await this.createSubOrders(order.id, groups, order.isTest);
+
+    // Test mode: the rows exist, but no partner is ever contacted.
+    if (!order.isTest) {
+      for (const sub of subOrders) {
+        await this.sendSupplierOrder(sub, groups.get(sub.supplierCode) ?? []);
+      }
     }
 
     order.supplierOrders = subOrders;
@@ -243,7 +245,11 @@ export class OrdersService {
     // §4.7 — analytics upsert + clear cart, now that the money is in and the placement
     // is committed. These are side effects, not part of the money path: if they throw,
     // the webhook must still return 2xx, because a retry would (correctly) hit the
-    // idempotency claim above and no-op — leaving the cart uncleared forever.
+    // idempotency claim above and no-op.
+    //
+    // They get SEPARATE try/catches on purpose: a failing analytics write must not skip
+    // the cart clear. The customer has paid for these items — leaving them in the cart
+    // invites an accidental second purchase, and no retry will ever come back to fix it.
     try {
       for (const item of order.items ?? []) {
         await this.partnerProducts.recordOrder({
@@ -255,10 +261,19 @@ export class OrdersService {
           sellPrice: Number(item.sellPrice ?? item.priceAtOrder),
         });
       }
+    } catch (err) {
+      this.logger.warn(
+        `partner-product analytics failed for order ${orderId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
+    try {
       await this.cart.clearCart(order.userId);
     } catch (err) {
       this.logger.warn(
-        `post-placement side effects failed for order ${orderId}: ${
+        `clearCart failed for paid order ${orderId}: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
@@ -288,31 +303,51 @@ export class OrdersService {
     return orderItem;
   }
 
-  private async placeSupplierOrder(
+  /**
+   * Phase 1 of placement: persist one sub-order row per supplier group, all in status
+   * NEW with no externalOrderId, before a single supplier is contacted.
+   *
+   * This is what makes a mid-placement crash recoverable: whatever happens next, every
+   * group the customer paid for has a row a manager can see and retry.
+   */
+  private async createSubOrders(
     orderId: string,
-    supplierCode: string,
-    items: OrderItem[],
-    isTest = false,
-  ): Promise<SupplierOrder> {
-    const sub = this.supplierOrderRepo.create({
-      orderId,
-      supplierCode,
-      status: 'NEW' as SupplierOrderStatusValue,
-      externalOrderId: null,
-      errorMessage: null,
-      returnStatus: null,
-      externalReturnId: null,
-      isTest,
-    });
-    if (isTest) {
-      // Test mode: persist the sub-order without contacting the partner.
-      return this.supplierOrderRepo.save(sub);
-    }
-    try {
-      const connector = await this.suppliersRegistry.getByCode(supplierCode);
-      const supplier = await this.suppliersService.findByCode(supplierCode);
-      const result = await this.rateLimiter.gate(
+    groups: Map<string, OrderItem[]>,
+    isTest: boolean,
+  ): Promise<SupplierOrder[]> {
+    const subs: SupplierOrder[] = [];
+    for (const supplierCode of groups.keys()) {
+      const sub = this.supplierOrderRepo.create({
+        orderId,
         supplierCode,
+        status: 'NEW' as SupplierOrderStatusValue,
+        externalOrderId: null,
+        errorMessage: null,
+        returnStatus: null,
+        externalReturnId: null,
+        isTest,
+      });
+      subs.push(await this.supplierOrderRepo.save(sub));
+    }
+    return subs;
+  }
+
+  /**
+   * Phase 2 of placement: contact one supplier and transition its ALREADY PERSISTED
+   * sub-order row in place (NEW -> PLACED / FAILED / whatever the connector returns).
+   * Never creates a row — the row is the pre-committed evidence that this group is owed.
+   */
+  private async sendSupplierOrder(
+    sub: SupplierOrder,
+    items: OrderItem[],
+  ): Promise<SupplierOrder> {
+    try {
+      const connector = await this.suppliersRegistry.getByCode(
+        sub.supplierCode,
+      );
+      const supplier = await this.suppliersService.findByCode(sub.supplierCode);
+      const result = await this.rateLimiter.gate(
+        sub.supplierCode,
         supplier?.rateLimitRpm ?? null,
         () => connector.placeOrder(this.toPlaceOrderItems(items)),
       );
@@ -436,33 +471,20 @@ export class OrdersService {
     supplierOrderId: string,
   ): Promise<any> {
     const sub = await this.getSubOrder(orderId, supplierOrderId);
-    if (sub.status !== 'FAILED') {
-      throw new ConflictException('Only FAILED sub-orders can be retried.');
+    // NEW = pre-created but never sent (the placement loop died before reaching this
+    // group); FAILED = sent and rejected. Both are owed to a paying customer and safe to
+    // (re-)send. Anything else already lives at the supplier — re-sending would duplicate
+    // the order there.
+    if (sub.status !== 'FAILED' && sub.status !== 'NEW') {
+      throw new ConflictException(
+        'Only NEW or FAILED sub-orders can be retried.',
+      );
     }
     const order = await this.loadOrder(orderId);
     const groupItems = (order.items ?? []).filter(
       (it) => it.supplierCode === sub.supplierCode,
     );
-    const placeItems: PlaceOrderItem[] = this.toPlaceOrderItems(groupItems);
-    try {
-      const connector = await this.suppliersRegistry.getByCode(sub.supplierCode);
-      const supplier = await this.suppliersService.findByCode(sub.supplierCode);
-      const result = await this.rateLimiter.gate(
-        sub.supplierCode,
-        supplier?.rateLimitRpm ?? null,
-        () => connector.placeOrder(placeItems),
-      );
-      sub.externalOrderId = result.externalOrderId;
-      sub.status = result.status;
-      sub.errorMessage = result.errorMessage ?? null;
-    } catch (err) {
-      sub.status = 'FAILED';
-      sub.errorMessage =
-        err instanceof NotImplementedException
-          ? 'No order API for this partner — manual processing required.'
-          : err?.message ?? 'placeOrder failed.';
-    }
-    await this.supplierOrderRepo.save(sub);
+    await this.sendSupplierOrder(sub, groupItems);
     await this.reaggregate(orderId);
     return this.withLabel(await this.loadOrder(orderId));
   }
