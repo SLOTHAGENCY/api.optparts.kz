@@ -46,6 +46,8 @@ import { MonitoringModule } from './monitoring/monitoring.module';
 import { GarageModule } from './garage/garage.module';
 import { Vehicle } from './garage/entities/vehicle.entity';
 import { CatalogNameIndex } from './catalog/entities/catalog-name-index.entity';
+import { Payment } from './payments/entities/payment.entity';
+import { PaymentEvent } from './payments/entities/payment-event.entity';
 
 @Module({
   imports: [
@@ -58,7 +60,7 @@ import { CatalogNameIndex } from './catalog/entities/catalog-name-index.entity';
         username: process.env.DB_USERNAME || 'postgres',
         password: process.env.DB_PASSWORD || 'postgres',
         database: process.env.DB_NAME || 'nestjs_auth',
-        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting, BrandMarkup, CatalogCache, News, Vehicle, CatalogNameIndex],
+        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting, BrandMarkup, CatalogCache, News, Vehicle, CatalogNameIndex, Payment, PaymentEvent],
         migrations: ['dist/migrations/*.js'],
         synchronize: process.env.NODE_ENV === 'development',
         logging: process.env.NODE_ENV === 'development',

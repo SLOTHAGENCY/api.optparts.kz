@@ -10,6 +10,7 @@ import { SupplierOrder } from './supplier-order.entity';
 
 export enum OrderStatus {
   NEW = 'new',
+  AWAITING_PAYMENT = 'awaiting_payment',
   PAID = 'paid',
   PENDING = 'pending',
   PLACED = 'placed',
@@ -20,6 +21,7 @@ export enum OrderStatus {
 
 export const OrderStatusLabel: Record<OrderStatus, string> = {
   [OrderStatus.NEW]: 'Новый',
+  [OrderStatus.AWAITING_PAYMENT]: 'Ожидает оплаты',
   [OrderStatus.PAID]: 'Оплачен',
   [OrderStatus.PENDING]: 'В обработке',
   [OrderStatus.PLACED]: 'Размещён у партнёров',
