@@ -7,7 +7,7 @@ import { PaymentsService } from './payments.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentsWebhookController } from './payments-webhook.controller';
 import { TipTopPayClient } from './tiptoppay.client';
-// import { UnpaidOrdersCron } from './unpaid-orders.cron'; // Task 7
+import { UnpaidOrdersCron } from './unpaid-orders.cron';
 import { OrdersModule } from '../orders/orders.module';
 
 @Module({
@@ -17,7 +17,7 @@ import { OrdersModule } from '../orders/orders.module';
   ],
   providers: [
     PaymentsService,
-    // UnpaidOrdersCron, // Task 7
+    UnpaidOrdersCron,
     { provide: TipTopPayClient, useFactory: () => new TipTopPayClient() },
   ],
   controllers: [PaymentsController, PaymentsWebhookController],
