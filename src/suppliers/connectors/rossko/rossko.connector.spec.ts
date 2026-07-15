@@ -1,4 +1,6 @@
+import axios from 'axios';
 import { RosskoConnector } from './rossko.connector';
+import { IndeterminateSupplierError } from '../../indeterminate';
 
 // Minimal SOAP fixture mirroring the real shape: SearchResult.PartsList.Part[]
 // -> crosses.Part[] -> stocks.stock[]. The parent part is 0451103316/BOSCH;
@@ -201,4 +203,40 @@ describe('RosskoConnector order status', () => {
     expect(connector.mapStatus('Подтверждён')).toBe('CONFIRMED');
     expect(connector.mapStatus('Новый')).toBe('PLACED');
   });
+});
+
+// A timeout on a POST Rossko may already have committed is NOT a rejection: collapsing it into
+// FAILED (retryable) would let one manager click re-send real goods. Only a definite decline
+// the supplier actually returned may be FAILED.
+describe('RosskoConnector.placeOrder failure classification', () => {
+  const connector = new RosskoConnector({ findByCode: async () => null } as any);
+  afterEach(() => jest.restoreAllMocks());
+
+  it('returns FAILED on a definite supplier decline (4xx)', async () => {
+    jest.spyOn(axios, 'post').mockRejectedValue(
+      Object.assign(new Error('Request failed with status code 400'), {
+        response: { status: 400, data: { message: 'declined' } },
+        request: {},
+      }),
+    );
+    const res = await connector.placeOrder([]);
+    expect(res.status).toBe('FAILED');
+    expect(res.externalOrderId).toBeNull();
+  });
+
+  it.each([
+    ['a timeout', { code: 'ECONNABORTED', request: {} }],
+    ['a connection reset', { code: 'ECONNRESET', request: {} }],
+    ['a 5xx with no usable body', { response: { status: 502, data: '' }, request: {} }],
+  ])(
+    'throws IndeterminateSupplierError on %s',
+    async (_label, shape) => {
+      jest
+        .spyOn(axios, 'post')
+        .mockRejectedValue(Object.assign(new Error('boom'), shape));
+      await expect(connector.placeOrder([])).rejects.toBeInstanceOf(
+        IndeterminateSupplierError,
+      );
+    },
+  );
 });

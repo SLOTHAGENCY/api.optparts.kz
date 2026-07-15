@@ -70,6 +70,12 @@ export class AdminStatsService {
     const errorsToday = await this.supplierOrderRepo.count({
       where: { status: 'FAILED' as any, createdAt: MoreThanOrEqual(todayStart) },
     });
+    // Ambiguous rows: a send that reached SENDING and never got a saved outcome (money taken,
+    // supplier maybe has the order). Counted across all time — a stuck row is a standing
+    // liability until an admin resolves it, so ops must see it even days later.
+    const stuckSending = await this.supplierOrderRepo.count({
+      where: { status: 'SENDING' as any },
+    });
     const lastFailed = await this.supplierOrderRepo.findOne({
       where: { status: 'FAILED' as any },
       order: { createdAt: 'DESC' },
@@ -104,6 +110,7 @@ export class AdminStatsService {
       },
       integrations: {
         errorsToday,
+        stuckSending,
         successRate: computeSuccessRate(queried, failed),
         lastError: lastFailed
           ? {

@@ -1,4 +1,6 @@
+import axios from 'axios';
 import { TabysConnector } from './tabys.connector';
+import { IndeterminateSupplierError } from '../../indeterminate';
 
 describe('TabysConnector.mapOffers', () => {
   const connector = new TabysConnector({ findByCode: async () => null } as any);
@@ -122,4 +124,46 @@ describe('TabysConnector.mapOffers', () => {
     expect(connector.mapStatus('Cancelled')).toBe('CANCELLED');
     expect(connector.mapStatus(null)).toBe('PLACED');
   });
+});
+
+// A transport failure on the order POST leaves the outcome unknown — Tabys may already hold
+// the order, so it must surface as indeterminate, never as retryable FAILED.
+describe('TabysConnector.placeOrder failure classification', () => {
+  function make(postImpl: () => Promise<any>) {
+    const connector = new TabysConnector({ findByCode: async () => null } as any);
+    jest
+      .spyOn(axios, 'create')
+      .mockReturnValue({ post: jest.fn(postImpl) } as any);
+    return connector;
+  }
+  afterEach(() => jest.restoreAllMocks());
+
+  it('returns FAILED on a definite supplier decline (4xx)', async () => {
+    const connector = make(() =>
+      Promise.reject(
+        Object.assign(new Error('400'), {
+          response: { status: 400, data: { message: 'declined' } },
+          request: {},
+        }),
+      ),
+    );
+    const res = await connector.placeOrder([]);
+    expect(res.status).toBe('FAILED');
+  });
+
+  it.each([
+    ['a timeout', { code: 'ECONNABORTED', request: {} }],
+    ['a connection reset', { code: 'ECONNRESET', request: {} }],
+    ['a 5xx with no usable body', { response: { status: 500, data: '' }, request: {} }],
+  ])(
+    'throws IndeterminateSupplierError on %s',
+    async (_label, shape) => {
+      const connector = make(() =>
+        Promise.reject(Object.assign(new Error('boom'), shape)),
+      );
+      await expect(connector.placeOrder([])).rejects.toBeInstanceOf(
+        IndeterminateSupplierError,
+      );
+    },
+  );
 });

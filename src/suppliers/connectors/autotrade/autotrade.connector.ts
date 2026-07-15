@@ -16,6 +16,10 @@ import {
   SupplierOrderStatusValue,
 } from '../../types';
 import { resolveConfig, hasKeys } from '../../connector-config.util';
+import {
+  IndeterminateSupplierError,
+  isIndeterminateSupplierError,
+} from '../../indeterminate';
 import { SuppliersService } from '../../suppliers.service';
 
 /**
@@ -202,6 +206,14 @@ export class AutotradeConnector implements SupplierConnector {
       return { externalOrderId, status: 'PLACED' };
     } catch (err: any) {
       this.logger.error('Autotrade placeOrder failed', err?.message);
+      if (isIndeterminateSupplierError(err)) {
+        // Timeout / reset / 5xx: Autotrade may already hold this order. Leave it ambiguous
+        // instead of FAILED so nothing auto-re-sends it.
+        throw new IndeterminateSupplierError(
+          'Autotrade order outcome unknown (transport failure).',
+          err,
+        );
+      }
       return {
         externalOrderId: null,
         status: 'FAILED',

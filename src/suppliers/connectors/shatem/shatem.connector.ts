@@ -15,6 +15,10 @@ import {
   SupplierOrderStatusValue,
 } from '../../types';
 import { resolveConfig, hasKeys } from '../../connector-config.util';
+import {
+  IndeterminateSupplierError,
+  isIndeterminateSupplierError,
+} from '../../indeterminate';
 import { SuppliersService } from '../../suppliers.service';
 
 /**
@@ -218,6 +222,14 @@ export class ShateMConnector implements SupplierConnector {
       return { externalOrderId, status: 'PLACED' };
     } catch (err: any) {
       this.logger.error('SHATE-M placeOrder failed', err?.message);
+      if (isIndeterminateSupplierError(err)) {
+        // Timeout / reset / 5xx on the order POST: SHATE-M may already hold this order.
+        // Leave it ambiguous instead of FAILED so nothing auto-re-sends it.
+        throw new IndeterminateSupplierError(
+          'SHATE-M order outcome unknown (transport failure).',
+          err,
+        );
+      }
       return {
         externalOrderId: null,
         status: 'FAILED',

@@ -1,4 +1,6 @@
+import axios from 'axios';
 import { AutotradeConnector } from './autotrade.connector';
+import { IndeterminateSupplierError } from '../../indeterminate';
 
 describe('AutotradeConnector.mapOffers', () => {
   const connector = new AutotradeConnector({ findByCode: async () => null } as any);
@@ -77,4 +79,38 @@ describe('AutotradeConnector.mapStatus', () => {
     expect(connector.mapStatus({ type_doc: 'ЗаявкаПокупателя', real: 0 })).toBe('PLACED');
     expect(connector.mapStatus(null)).toBe('PLACED');
   });
+});
+
+// A transport failure on createDocUnconfirmedOrder leaves the outcome unknown — Autotrade may
+// already hold the order, so it must surface as indeterminate, never as retryable FAILED.
+describe('AutotradeConnector.placeOrder failure classification', () => {
+  const connector = new AutotradeConnector({ findByCode: async () => null } as any);
+  afterEach(() => jest.restoreAllMocks());
+
+  it('returns FAILED on a definite supplier decline (4xx)', async () => {
+    jest.spyOn(axios, 'post').mockRejectedValue(
+      Object.assign(new Error('Request failed with status code 400'), {
+        response: { status: 400, data: { message: 'declined' } },
+        request: {},
+      }),
+    );
+    const res = await connector.placeOrder([]);
+    expect(res.status).toBe('FAILED');
+  });
+
+  it.each([
+    ['a timeout', { code: 'ECONNABORTED', request: {} }],
+    ['a connection reset', { code: 'ECONNRESET', request: {} }],
+    ['a 5xx with no usable body', { response: { status: 502, data: '' }, request: {} }],
+  ])(
+    'throws IndeterminateSupplierError on %s',
+    async (_label, shape) => {
+      jest
+        .spyOn(axios, 'post')
+        .mockRejectedValue(Object.assign(new Error('boom'), shape));
+      await expect(connector.placeOrder([])).rejects.toBeInstanceOf(
+        IndeterminateSupplierError,
+      );
+    },
+  );
 });

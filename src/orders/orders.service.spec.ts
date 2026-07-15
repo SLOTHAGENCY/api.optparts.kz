@@ -3,6 +3,7 @@ import { OrdersService, aggregateOrderStatus } from './orders.service';
 import { DeliveryType, OrderStatus } from './entities/order.entity';
 import { SupplierOrder } from './entities/supplier-order.entity';
 import { MockConnector } from '../suppliers/connectors/mock/mock.connector';
+import { IndeterminateSupplierError } from '../suppliers/indeterminate';
 
 /**
  * Deep clone that keeps Dates as Dates (structuredClone builds them in another realm, so
@@ -48,9 +49,23 @@ function makeDeps(
   const saved: any[] = [];
   const orderRepo = {
     create: jest.fn((data: any) => ({ ...data })),
+    // save() models real TypeORM cascade: writing the parent Order ALSO writes back its
+    // attached supplierOrders (the relation is { cascade: true }). This is what makes the
+    // CRITICAL 1 test honest — a bare mock that ignored the children could never reproduce
+    // the revert, so the test would be vacuous. Post-fix the service never routes order-field
+    // writes through save() (it uses update()), so this cascade only ever fires on create(),
+    // where there are no supplierOrders yet.
     save: jest.fn(async (o: any) => {
       o.id = o.id ?? 'order-1';
       if (!saved.includes(o)) saved.push(o);
+      if (Array.isArray(o.supplierOrders)) {
+        for (const child of o.supplierOrders) {
+          if (!child) continue;
+          const row = persistedSubs.find((r: any) => r.id === child.id);
+          if (row) Object.assign(row, cloneRow(child));
+          else persistedSubs.push(cloneRow(child));
+        }
+      }
       return o;
     }),
     findOne: jest.fn(async () => saved[0] ?? null),
@@ -116,6 +131,16 @@ function makeDeps(
           (where.orderId === undefined || r.orderId === where.orderId),
       );
       return row ? cloneRow(row) : null;
+    }),
+    // find() returns CLONES of the committed rows — the DB truth placeWithSuppliers re-reads
+    // to aggregate, deliberately decoupled from the send loop's stale in-memory array.
+    find: jest.fn(async (opts: any = {}) => {
+      const where = opts.where ?? {};
+      return persistedSubs
+        .filter(
+          (r: any) => where.orderId === undefined || r.orderId === where.orderId,
+        )
+        .map(cloneRow);
     }),
   };
   // A transaction fake with real rollback semantics: on throw, the order rows' fields and
@@ -524,13 +549,13 @@ describe('OrdersService.placeWithSuppliers', () => {
       deliveryType: DeliveryType.PICKUP,
     } as any);
 
-    // The supplier is contacted, then persisting the placement outcome blows up. (The
-    // NEW row pre-created before any contact still persists fine — the crash is on the
-    // save that carries the result back.)
-    const realSave = supplierOrderRepo.save.getMockImplementation()!;
-    supplierOrderRepo.save.mockImplementation(async (s: any) => {
-      if (s.status !== 'NEW') throw new Error('db died');
-      return realSave(s);
+    // The supplier is contacted, then persisting the placement outcome blows up. The claim
+    // (the conditional update INTO 'SENDING') and the pre-created NEW row still persist fine —
+    // the crash is on the terminal update that carries the result back.
+    const realUpdate = supplierOrderRepo.update.getMockImplementation()!;
+    supplierOrderRepo.update.mockImplementation(async (where: any, patch: any) => {
+      if (patch.status && patch.status !== 'SENDING') throw new Error('db died');
+      return realUpdate(where, patch);
     });
     await expect(service.placeWithSuppliers(created.id)).rejects.toThrow(
       'db died',
@@ -646,14 +671,12 @@ describe('OrdersService.placeWithSuppliers', () => {
       deliveryType: DeliveryType.PICKUP,
     } as any);
 
-    // Persisting the *outcome* of the first group (status FAILED, already contacted)
-    // dies. Pre-created NEW rows still save fine.
-    const realSave = supplierOrderRepo.save.getMockImplementation()!;
-    supplierOrderRepo.save.mockImplementation(async (s: any) => {
-      if (s.supplierCode === 'mock' && s.status !== 'NEW') {
-        throw new Error('db died');
-      }
-      return realSave(s);
+    // Persisting the *outcome* of the first group (a definite FAILED, already contacted) dies
+    // on the terminal update. Pre-created NEW rows and the SENDING claim still persist fine.
+    const realUpdate = supplierOrderRepo.update.getMockImplementation()!;
+    supplierOrderRepo.update.mockImplementation(async (where: any, patch: any) => {
+      if (patch.status === 'FAILED') throw new Error('db died');
+      return realUpdate(where, patch);
     });
 
     await expect(service.placeWithSuppliers(created.id)).rejects.toThrow(
@@ -871,6 +894,60 @@ describe('OrdersService.placeWithSuppliers', () => {
     expect(rossko!.status).toBe('SENDING');
     expect(placed.status).toBe(OrderStatus.PARTIALLY_PLACED);
   });
+
+  // CRITICAL 1 — the parent cascade save reverts a sub-order someone else advanced.
+  //
+  // The send loop's in-memory copy of a group goes stale the moment a concurrent manager retry
+  // advances that group on disk. If the final order-level persistence cascades that stale copy
+  // back over the row (which orderRepo.save(order) with { cascade:true } children does), it
+  // destroys the externalOrderId — the evidence the supplier has the order — and the next retry
+  // sends it AGAIN. The fix re-reads the rows from the DB and writes ONLY the order's status
+  // column, never cascading the children.
+  //
+  // The orderRepo.save mock here models cascade honestly (writes attached supplierOrders back),
+  // so this reproduces the revert against the pre-fix source and proves the fix against it.
+  it('the final order persistence does not cascade-revert a row a concurrent retry advanced to PLACED', async () => {
+    // Group A is contacted first and DECLINED (a definite FAILED, so a manager may retry it);
+    // on the manager's retry it succeeds. Group B is slow, holding the placement loop open.
+    let aCalls = 0;
+    const a = new MockConnector('mock', 'Mock');
+    jest.spyOn(a, 'placeOrder').mockImplementation(async () => {
+      aCalls += 1;
+      return aCalls === 1
+        ? { externalOrderId: null, status: 'FAILED' as const }
+        : { externalOrderId: 'EXT-A', status: 'PLACED' as const };
+    });
+    const b = new MockConnector('rossko', 'Rossko');
+    const { service, persistedSubs } = makeDeps(
+      [
+        makeCheckoutItem({ supplierCode: 'mock' }),
+        makeCheckoutItem({ supplierCode: 'rossko', warehouseId: 'w2' }),
+      ],
+      { mock: a, rossko: b },
+    );
+
+    const created = await service.create('user-1', {
+      deliveryType: DeliveryType.PICKUP,
+    } as any);
+
+    // While the loop is blocked on the slow B — AFTER it already finished (and FAILED) A — a
+    // manager retries A and it succeeds, advancing A to PLACED/EXT-A on disk. The loop's copy
+    // of A stays stale (FAILED/null): the loop is long past A and never revisits it.
+    jest.spyOn(b, 'placeOrder').mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      const aRow = persistedSubs.find((s: any) => s.supplierCode === 'mock');
+      await service.retrySupplierOrder(created.id, aRow.id);
+      return { externalOrderId: 'EXT-B', status: 'PLACED' as const };
+    });
+
+    const placed = await service.placeWithSuppliers(created.id);
+
+    // The row the manager advanced survives — NOT reverted to FAILED/null by a cascade.
+    const aRow = persistedSubs.find((s: any) => s.supplierCode === 'mock');
+    expect(aRow.status).toBe('PLACED');
+    expect(aRow.externalOrderId).toBe('EXT-A');
+    expect(placed.status).toBe(OrderStatus.PLACED);
+  });
 });
 
 describe('OrdersService manager controls', () => {
@@ -888,6 +965,12 @@ describe('OrdersService manager controls', () => {
     const orderRepo = {
       findOne: jest.fn(async () => order),
       save: jest.fn(async (o: any) => o),
+      // Non-cascading order-field write (UPDATE ... WHERE id) — the shape reaggregate/
+      // updateStatus/cancel/upsertComment use so they never clobber the children.
+      update: jest.fn(async (where: any, patch: any) => {
+        if (order.id === where.id) Object.assign(order, patch);
+        return { affected: order.id === where.id ? 1 : 0 };
+      }),
     };
     // `sub` IS the row in the supplier_orders table. Every SELECT hands out a fresh copy
     // of it (as a real DB does), so two concurrent requests hold two independent objects
@@ -1105,11 +1188,13 @@ describe('OrdersService manager controls', () => {
     await expect(
       service.updateStatus('order-1', OrderStatus.PAID),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(orderRepo.save).not.toHaveBeenCalled();
+    // Rejected statuses write nothing. The write is a narrow, non-cascading update() now, so
+    // it can never clobber the sub-orders on the eager relation (CRITICAL 1).
+    expect(orderRepo.update).not.toHaveBeenCalled();
 
     const updated = await service.updateStatus('order-1', OrderStatus.DELIVERED);
     expect(updated.status).toBe(OrderStatus.DELIVERED);
-    expect(orderRepo.save).toHaveBeenCalled();
+    expect(orderRepo.update).toHaveBeenCalled();
   });
 
   // Still no re-placing of a sub-order that is already at the supplier.
@@ -1219,10 +1304,12 @@ describe('OrdersService manager controls', () => {
       ITEM,
     ]);
 
-    // The outcome write (the only save() in the send path) never lands.
-    const realSave = supplierOrderRepo.save.getMockImplementation()!;
-    supplierOrderRepo.save.mockImplementation(async () => {
-      throw new Error('db died');
+    // The terminal outcome write (the conditional update out of SENDING) never lands; the
+    // claim INTO SENDING already did.
+    const realUpdate = supplierOrderRepo.update.getMockImplementation()!;
+    supplierOrderRepo.update.mockImplementation(async (where: any, patch: any) => {
+      if (where.status === 'SENDING') throw new Error('db died');
+      return realUpdate(where, patch);
     });
     await expect(
       service.retrySupplierOrder('order-1', 'sub-1'),
@@ -1234,7 +1321,41 @@ describe('OrdersService manager controls', () => {
     expect(sub.attemptedAt).toBeInstanceOf(Date);
 
     // The DB is back. The manager clicks retry again: refused, supplier untouched.
-    supplierOrderRepo.save.mockImplementation(realSave);
+    supplierOrderRepo.update.mockImplementation(realUpdate);
+    await expect(
+      service.retrySupplierOrder('order-1', 'sub-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(placeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // CRITICAL 2 (service side) — a placeOrder that reports an INDETERMINATE transport failure
+  // (the supplier may already have the order) must leave the row SENDING, never FAILED. FAILED
+  // is retryable; one more click would double-order. This mirrors, at the service seam, what
+  // the connectors now do: transport failure -> IndeterminateSupplierError -> SENDING.
+  it('leaves the row SENDING when placeOrder reports an indeterminate outcome', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'FAILED',
+      attemptedAt: null,
+      errorMessage: 'previous error',
+      isTest: false,
+    };
+    const connector = new MockConnector().failWith(
+      new IndeterminateSupplierError('timeout — outcome unknown'),
+    );
+    const placeSpy = jest.spyOn(connector, 'placeOrder');
+    const { service } = makeServiceWithSub(sub, connector, [ITEM]);
+
+    await service.retrySupplierOrder('order-1', 'sub-1');
+
+    expect(placeSpy).toHaveBeenCalledTimes(1);
+    expect(sub.status).toBe('SENDING'); // ambiguous, NOT FAILED
+    expect(sub.attemptedAt).toBeInstanceOf(Date);
+
+    // ...and it is no longer auto-retryable: a second click is refused.
     await expect(
       service.retrySupplierOrder('order-1', 'sub-1'),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -1407,6 +1528,53 @@ describe('OrdersService manager controls', () => {
     expect(sub.status).toBe('FAILED');
   });
 
+  // IMPORTANT B — a SENDING row younger than the send timeout may still be legitimately on the
+  // wire. Settling it (delivered:false -> FAILED -> retry) would fire a second send while the
+  // first is live. Refuse it unless the admin explicitly forces the override.
+  it('resolve-attempt refuses a SENDING row whose attempt is younger than the send timeout', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'SENDING',
+      attemptedAt: new Date(), // started just now — may still be in flight
+      errorMessage: null,
+      isTest: false,
+    };
+    const { service } = makeServiceWithSub(sub, new MockConnector());
+    await expect(
+      service.resolveSupplierAttempt(
+        'order-1',
+        'sub-1',
+        { delivered: false },
+        'admin-1',
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(sub.status).toBe('SENDING');
+  });
+
+  it('resolve-attempt settles a fresh attempt when force=true', async () => {
+    const sub = {
+      id: 'sub-1',
+      orderId: 'order-1',
+      supplierCode: 'mock',
+      externalOrderId: null,
+      status: 'SENDING',
+      attemptedAt: new Date(), // just now, but the admin has confirmed out of band
+      errorMessage: null,
+      isTest: false,
+    };
+    const { service } = makeServiceWithSub(sub, new MockConnector());
+    await service.resolveSupplierAttempt(
+      'order-1',
+      'sub-1',
+      { delivered: false, force: true },
+      'admin-1',
+    );
+    expect(sub.status).toBe('FAILED');
+  });
+
   it('return via connector API sets returnStatus from the result', async () => {
     const sub = {
       id: 'sub-1',
@@ -1467,6 +1635,7 @@ describe('OrdersService.pollActiveSupplierStatuses', () => {
         status: OrderStatus.PLACED,
       })),
       save: jest.fn(async (o: any) => o),
+      update: jest.fn(async () => ({ affected: 1 })),
     };
     const registry = {
       getByCode: jest.fn(async (code: string) => connectorByCode[code]),

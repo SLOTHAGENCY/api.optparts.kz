@@ -1,4 +1,11 @@
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
@@ -19,13 +26,29 @@ export class ResolveAttemptDto {
 
   @ApiPropertyOptional({
     description:
-      'Номер заказа в системе поставщика — если заказ дошёл и поставщик его назвал (только при delivered=true).',
+      'Номер заказа в системе поставщика. Обязателен при delivered=true: без него под-заказ ' +
+      'станет PLACED без внешнего id и его нельзя будет отслеживать (опрашивать статус).',
     example: 'EXT-12345',
   })
-  @IsOptional()
+  // Required when delivered=true (else PLACED with a null external id is unpollable forever);
+  // ignored when delivered=false.
+  @ValidateIf((o) => o.delivered === true)
+  @IsNotEmpty({
+    message: 'externalOrderId обязателен, если заказ дошёл до поставщика (delivered=true).',
+  })
   @IsString()
   @MaxLength(255)
   externalOrderId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Разрешить подтверждение, даже если попытка отправки началась недавно (в пределах ' +
+      'таймаута отправки). Используйте, только если вы вручную подтвердили результат у поставщика.',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
 
   @ApiPropertyOptional({
     description: 'Комментарий администратора: как именно был подтверждён результат.',

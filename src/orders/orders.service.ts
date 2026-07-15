@@ -38,6 +38,15 @@ import {
 } from '../suppliers/types';
 import { SuppliersService } from '../suppliers/suppliers.service';
 import { RateLimiterRegistry } from '../suppliers/rate-limiter.registry';
+import { IndeterminateSupplierError } from '../suppliers/indeterminate';
+
+/**
+ * How long a supplier send may legitimately be in flight — matches the connectors' request
+ * timeout. A SENDING row younger than this may still be on the wire, so resolveSupplierAttempt
+ * refuses to settle it (unless the admin forces it): settling → FAILED → retry while the first
+ * request is still live would double-order.
+ */
+export const SUPPLIER_SEND_TIMEOUT_MS = 20000;
 
 /**
  * Sub-order statuses that are NOT (yet) at the supplier:
@@ -290,11 +299,22 @@ export class OrdersService {
       }
     }
 
-    order.supplierOrders = subOrders;
-    order.status = order.isTest
+    // Aggregate from the DB, not from the send loop's in-memory copies. The moment a
+    // concurrent manager retry touches a row, our `subOrders` array is stale — re-reading the
+    // persisted rows is the only source of truth. (See CRITICAL 1: the parent cascade save
+    // that used to run here would UPDATE every child from that stale array, reverting a row a
+    // concurrent retry had just advanced to PLACED and destroying the evidence.)
+    const freshSubs = await this.supplierOrderRepo.find({
+      where: { orderId: order.id },
+    });
+    const status = order.isTest
       ? OrderStatus.PAID
-      : aggregateOrderStatus(subOrders.map((s) => s.status));
-    await this.orderRepo.save(order);
+      : aggregateOrderStatus(freshSubs.map((s) => s.status));
+    // Narrow, NON-cascading write: only the order's own status column. Never persist the
+    // parent with its eager supplierOrders attached, or the cascade clobbers the children.
+    await this.orderRepo.update({ id: order.id }, { status });
+    order.status = status;
+    order.supplierOrders = freshSubs;
 
     // §4.7 — analytics upsert + clear cart, now that the money is in and the placement
     // is committed. These are side effects, not part of the money path: if they throw,
@@ -449,6 +469,16 @@ export class OrdersService {
     sub.status = 'SENDING';
     sub.attemptedAt = attemptedAt;
 
+    // Compute the terminal outcome. A connector that RETURNS a result gives a definite answer
+    // (PLACED, or a supplier decline -> FAILED). A connector that THROWS is either an
+    // INDETERMINATE transport failure — the supplier may already have the order, so we leave
+    // the row SENDING and let an admin resolve it — or a hard local failure (no order API),
+    // which is a definite FAILED.
+    let outcome: {
+      status: SupplierOrderStatusValue;
+      externalOrderId: string | null;
+      errorMessage: string | null;
+    };
     try {
       const connector = await this.suppliersRegistry.getByCode(
         sub.supplierCode,
@@ -459,17 +489,55 @@ export class OrdersService {
         supplier?.rateLimitRpm ?? null,
         () => connector.placeOrder(this.toPlaceOrderItems(items)),
       );
-      sub.externalOrderId = result.externalOrderId;
-      sub.status = result.status;
-      sub.errorMessage = result.errorMessage ?? null;
+      outcome = {
+        status: result.status,
+        externalOrderId: result.externalOrderId,
+        errorMessage: result.errorMessage ?? null,
+      };
     } catch (err) {
-      sub.status = 'FAILED';
-      sub.errorMessage =
-        err instanceof NotImplementedException
-          ? 'No order API for this partner — manual processing required.'
-          : err?.message ?? 'placeOrder failed.';
+      if (err instanceof IndeterminateSupplierError) {
+        // We contacted the supplier and never learned the outcome. The row is ALREADY on
+        // disk as SENDING (the claim above) — write no terminal outcome, so nothing
+        // auto-re-sends it. Only resolveSupplierAttempt() (admin, after phoning the
+        // supplier) can settle it.
+        this.logger.warn(
+          `sendSupplierOrder: sub-order ${sub.id} (${sub.supplierCode}) outcome is UNKNOWN ` +
+            `(${err.message}) — leaving it SENDING for an admin to resolve.`,
+        );
+        return sub;
+      }
+      outcome = {
+        status: 'FAILED',
+        externalOrderId: null,
+        errorMessage:
+          err instanceof NotImplementedException
+            ? 'No order API for this partner — manual processing required.'
+            : (err as any)?.message ?? 'placeOrder failed.',
+      };
     }
-    return this.supplierOrderRepo.save(sub);
+
+    // Terminal write as a CONDITIONAL update (never save()): only a sender still holding the
+    // SENDING row may record the outcome. If a resolve-attempt (admin) claimed the row while
+    // we were on the wire, it now owns the verdict — we lose the CAS and must not overwrite it.
+    const settled = await this.supplierOrderRepo.update(
+      { id: sub.id, status: 'SENDING' as SupplierOrderStatusValue },
+      {
+        status: outcome.status,
+        externalOrderId: outcome.externalOrderId,
+        errorMessage: outcome.errorMessage,
+      },
+    );
+    if (!settled.affected) {
+      const fresh = await this.supplierOrderRepo.findOne({
+        where: { id: sub.id },
+      });
+      if (fresh) Object.assign(sub, fresh);
+      return sub;
+    }
+    sub.status = outcome.status;
+    sub.externalOrderId = outcome.externalOrderId;
+    sub.errorMessage = outcome.errorMessage;
+    return sub;
   }
 
   /** Map immutable order-item snapshots to the connector's placeOrder payload. */
@@ -504,8 +572,12 @@ export class OrdersService {
     // it on an order that has no sub-orders loaded/persisted (e.g. AWAITING_PAYMENT, or
     // a relation that simply was not selected) would silently kill a live order.
     if (!subs.length) return;
-    order.status = aggregateOrderStatus(subs.map((s) => s.status));
-    await this.orderRepo.save(order);
+    const status = aggregateOrderStatus(subs.map((s) => s.status));
+    // Non-cascading write: persist only the order's own status. Saving the eager-loaded
+    // parent would cascade-UPDATE its children from this in-memory copy, reverting a row a
+    // concurrent send/retry advanced in the meantime (CRITICAL 1).
+    await this.orderRepo.update({ id: orderId }, { status });
+    order.status = status;
   }
 
   async refreshSupplierStatus(
@@ -647,6 +719,25 @@ export class OrdersService {
       );
     }
 
+    // Age guard: a row whose attempt started less than the send timeout ago may still be
+    // legitimately in flight. Settling it now (delivered:false -> FAILED -> retry) would fire
+    // a second send while the first is still on the wire — the exact double-order we prevent.
+    // An admin who has confirmed the outcome out of band can override with force:true.
+    const attemptedMs = sub.attemptedAt
+      ? new Date(sub.attemptedAt).getTime()
+      : 0;
+    if (
+      !dto.force &&
+      attemptedMs &&
+      Date.now() - attemptedMs < SUPPLIER_SEND_TIMEOUT_MS
+    ) {
+      throw new ConflictException(
+        'Эта попытка отправки началась только что и ещё может выполняться. ' +
+          'Подождите завершения таймаута отправки или передайте force=true, ' +
+          'если вы уже подтвердили результат у поставщика.',
+      );
+    }
+
     const next: SupplierOrderStatusValue = dto.delivered ? 'PLACED' : 'FAILED';
     // Conditional update again: if the in-flight send finished between our read and this
     // write, it — not us — owns the outcome, and we must not overwrite it.
@@ -731,9 +822,11 @@ export class OrdersService {
     }
     const order = await this.orderRepo.findOne({ where: { id } });
     if (!order) throw new NotFoundException('Order not found.');
+    // Non-cascading write: never persist the eager-loaded parent (it would clobber the
+    // children); write only the status column (CRITICAL 1).
+    await this.orderRepo.update({ id }, { status });
     order.status = status;
-    const saved = await this.orderRepo.save(order);
-    return this.withLabel(saved);
+    return this.withLabel(order);
   }
 
   async cancel(id: string, userId: string): Promise<any> {
@@ -742,8 +835,10 @@ export class OrdersService {
     if (order.status === OrderStatus.DELIVERED) {
       throw new BadRequestException('Cannot cancel a delivered order.');
     }
+    // Non-cascading write: only the order's own status column (CRITICAL 1).
+    await this.orderRepo.update({ id }, { status: OrderStatus.CANCELLED });
     order.status = OrderStatus.CANCELLED;
-    return this.withLabelPublic(await this.orderRepo.save(order));
+    return this.withLabelPublic(order);
   }
 
   async upsertComment(
@@ -753,9 +848,14 @@ export class OrdersService {
   ): Promise<any> {
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found.');
+    // Non-cascading write: only the comment columns, never the eager children (CRITICAL 1).
+    await this.orderRepo.update(
+      { id: orderId },
+      { managerComment: comment, commentedBy: managerId },
+    );
     order.managerComment = comment;
     order.commentedBy = managerId;
-    return this.withLabel(await this.orderRepo.save(order));
+    return this.withLabel(order);
   }
 
   async deleteComment(orderId: string, managerId: string): Promise<any> {
@@ -764,9 +864,14 @@ export class OrdersService {
     if (order.commentedBy !== managerId) {
       throw new ForbiddenException('You can only delete your own comment.');
     }
+    // Non-cascading write: only the comment columns, never the eager children (CRITICAL 1).
+    await this.orderRepo.update(
+      { id: orderId },
+      { managerComment: null, commentedBy: null },
+    );
     order.managerComment = null;
     order.commentedBy = null;
-    return this.withLabel(await this.orderRepo.save(order));
+    return this.withLabel(order);
   }
 
   // Arrow properties so they keep `this` when passed to Array.map.

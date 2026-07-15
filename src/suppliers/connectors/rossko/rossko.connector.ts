@@ -16,6 +16,10 @@ import {
   SupplierOrderStatusValue,
 } from '../../types';
 import { resolveConfig, hasKeys } from '../../connector-config.util';
+import {
+  IndeterminateSupplierError,
+  isIndeterminateSupplierError,
+} from '../../indeterminate';
 import { SuppliersService } from '../../suppliers.service';
 
 @Injectable()
@@ -158,6 +162,14 @@ export class RosskoConnector implements SupplierConnector {
       rawXml = response.data;
     } catch (err: any) {
       this.logger.error('Rossko GetCheckout failed', err?.message);
+      if (isIndeterminateSupplierError(err)) {
+        // Timeout / reset / 5xx: Rossko may already hold this order. Do NOT mark it FAILED
+        // (retryable) — surface it so the sub-order is left SENDING for an admin to resolve.
+        throw new IndeterminateSupplierError(
+          'Rossko order request outcome unknown (transport failure).',
+          err,
+        );
+      }
       return {
         externalOrderId: null,
         status: 'FAILED',

@@ -52,7 +52,10 @@ describe('AdminStatsService.getStats', () => {
       count: jest.fn(async () => 100),
     };
     const supplierOrderRepo = {
-      count: jest.fn(async () => 3),
+      // FAILED -> errorsToday (3); SENDING -> stuckSending (2); honest per-status counts.
+      count: jest.fn(async (opts: any = {}) =>
+        opts?.where?.status === 'SENDING' ? 2 : 3,
+      ),
       findOne: jest.fn(async () => ({
         supplierCode: 'globalspares',
         errorMessage: 'Timeout globalspares.net',
@@ -86,6 +89,9 @@ describe('AdminStatsService.getStats', () => {
     expect(res.ordersToday.changePct).toBe(-98); // 2 vs 100
 
     expect(res.integrations.errorsToday).toBe(3);
+    // Ambiguous SENDING rows (money taken, outcome unknown) surface in their own counter so
+    // ops actually notice them.
+    expect(res.integrations.stuckSending).toBe(2);
     expect(res.integrations.successRate).toBe(99.8); // (1000-2)/1000
     expect(res.integrations.lastError).toEqual({
       supplierCode: 'globalspares',

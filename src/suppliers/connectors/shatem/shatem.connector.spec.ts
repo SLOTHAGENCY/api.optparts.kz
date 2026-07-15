@@ -1,4 +1,6 @@
+import axios from 'axios';
 import { ShateMConnector } from './shatem.connector';
+import { IndeterminateSupplierError } from '../../indeterminate';
 
 describe('ShateMConnector.mapOffers', () => {
   const connector = new ShateMConnector({ findByCode: async () => null } as any);
@@ -68,4 +70,49 @@ describe('ShateMConnector.mapOffers', () => {
     expect(connector.mapStatus(10)).toBe('PLACED');
     expect(connector.mapStatus(-1)).toBe('CANCELLED');
   });
+});
+
+// A transport failure on the order POST leaves the outcome unknown — SHATE-M may already hold
+// the order, so it must surface as indeterminate, never as retryable FAILED.
+describe('ShateMConnector.placeOrder failure classification', () => {
+  function make(postImpl: () => Promise<any>) {
+    const connector = new ShateMConnector({ findByCode: async () => null } as any);
+    // Skip auth: pre-seed the token cache so placeOrder goes straight to the order POST.
+    (connector as any).token = 'cached-token';
+    (connector as any).tokenExpiresAt = Date.now() + 3600_000;
+    jest
+      .spyOn(axios, 'create')
+      .mockReturnValue({ post: jest.fn(postImpl) } as any);
+    return connector;
+  }
+  afterEach(() => jest.restoreAllMocks());
+
+  it('returns FAILED on a definite supplier decline (4xx)', async () => {
+    const connector = make(() =>
+      Promise.reject(
+        Object.assign(new Error('400'), {
+          response: { status: 400, data: { description: 'declined' } },
+          request: {},
+        }),
+      ),
+    );
+    const res = await connector.placeOrder([]);
+    expect(res.status).toBe('FAILED');
+  });
+
+  it.each([
+    ['a timeout', { code: 'ECONNABORTED', request: {} }],
+    ['a connection reset', { code: 'ECONNRESET', request: {} }],
+    ['a 5xx with no usable body', { response: { status: 503, data: '' }, request: {} }],
+  ])(
+    'throws IndeterminateSupplierError on %s',
+    async (_label, shape) => {
+      const connector = make(() =>
+        Promise.reject(Object.assign(new Error('boom'), shape)),
+      );
+      await expect(connector.placeOrder([])).rejects.toBeInstanceOf(
+        IndeterminateSupplierError,
+      );
+    },
+  );
 });
