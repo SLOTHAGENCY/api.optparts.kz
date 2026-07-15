@@ -52,7 +52,15 @@ export class PaymentsWebhookController {
     // Pre-authorization probe: we allow every payment that reached us with a valid
     // signature. Availability was already re-checked at checkout. The service does not
     // handle `check`, so journal the valid delivery here (complementary, not duplicative).
-    await this.payments.logEvent('check', body, true);
+    try {
+      await this.payments.logEvent('check', body, true);
+    } catch (err) {
+      // An audit-log write failure must never fail the webhook — see class docblock.
+      this.logger.warn(
+        `Failed to journal check webhook for invoice ${body.InvoiceId}.`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
     return OK;
   }
 
@@ -102,7 +110,15 @@ export class PaymentsWebhookController {
       this.logger.error(
         `Forged ${type} webhook rejected: bad X-Content-HMAC for invoice ${body.InvoiceId}.`,
       );
-      await this.payments.logEvent(type, body, false);
+      try {
+        await this.payments.logEvent(type, body, false);
+      } catch (err) {
+        // Even if we can't journal the forgery, the request must still be rejected.
+        this.logger.warn(
+          `Failed to journal forged ${type} webhook for invoice ${body.InvoiceId}.`,
+          err instanceof Error ? err.stack : String(err),
+        );
+      }
       throw new ForbiddenException('Invalid signature.');
     }
   }

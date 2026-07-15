@@ -74,11 +74,32 @@ describe('PaymentsWebhookController', () => {
   });
 
   it('approves a Check webhook with {code:0}', async () => {
-    const { controller } = makeController();
+    const { controller, service } = makeController();
+    const { req, body } = makeReq(payBody);
+
+    const res = await controller.check(req, body);
+
+    expect(service.logEvent).toHaveBeenCalledWith('check', body, true);
+    expect(res).toEqual({ code: 0 });
+  });
+
+  // logEvent hits the DB; a write failure must never turn the always-200 webhook into a 500.
+  it('still answers {code:0} from Check when logEvent rejects', async () => {
+    const { controller, service } = makeController();
+    service.logEvent.mockRejectedValue(new Error('db down'));
     const { req, body } = makeReq(payBody);
 
     const res = await controller.check(req, body);
 
     expect(res).toEqual({ code: 0 });
+  });
+
+  // Forged requests must still be rejected with 403 even if we can't journal the forgery.
+  it('still rejects a forged signature when logEvent rejects', async () => {
+    const { controller, service } = makeController();
+    service.logEvent.mockRejectedValue(new Error('db down'));
+    const { req, body } = makeReq(payBody, 'Zm9yZ2Vk');
+
+    await expect(controller.pay(req, body)).rejects.toMatchObject({ status: 403 });
   });
 });
