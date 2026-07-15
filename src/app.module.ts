@@ -48,6 +48,7 @@ import { Vehicle } from './garage/entities/vehicle.entity';
 import { CatalogNameIndex } from './catalog/entities/catalog-name-index.entity';
 import { Payment } from './payments/entities/payment.entity';
 import { PaymentEvent } from './payments/entities/payment-event.entity';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -89,6 +90,7 @@ import { PaymentEvent } from './payments/entities/payment-event.entity';
     CategoriesModule,
     BrandsModule,
     OrdersModule,
+    PaymentsModule,
     PartnerProductsModule,
     SuppliersModule,
     PricingModule,
