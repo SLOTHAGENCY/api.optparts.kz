@@ -1,0 +1,256 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { randomUUID } from 'crypto';
+import { Payment, PaymentStatus } from './entities/payment.entity';
+import { PaymentEvent, PaymentEventType } from './entities/payment-event.entity';
+import { TipTopPayClient } from './tiptoppay.client';
+import { Order, OrderStatus } from '../orders/entities/order.entity';
+import { OrdersService } from '../orders/orders.service';
+
+export interface PaymentInitResponse {
+  publicTerminalId: string;
+  invoiceId: string;
+  amount: number;
+  currency: string;
+  accountId: string;
+  description: string;
+}
+
+/** Body TipTopPay POSTs to our webhooks. Field names are PascalCase, values are loosely typed. */
+export interface TipTopPayWebhookBody {
+  TransactionId?: string | number;
+  Amount?: string | number;
+  Currency?: string;
+  InvoiceId?: string;
+  AccountId?: string;
+  CardLastFour?: string;
+  CardType?: string;
+  Status?: string;
+  Reason?: string;
+}
+
+const CURRENCY = 'KZT';
+
+@Injectable()
+export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
+  constructor(
+    @InjectRepository(Payment)
+    private readonly paymentRepo: Repository<Payment>,
+    @InjectRepository(PaymentEvent)
+    private readonly eventRepo: Repository<PaymentEvent>,
+    @InjectRepository(Order)
+    private readonly orderRepo: Repository<Order>,
+    private readonly orders: OrdersService,
+    private readonly client: TipTopPayClient,
+  ) {}
+
+  /**
+   * Prepare the widget parameters for an order awaiting payment.
+   *
+   * The amount is read from the order — never from the request — so a tampered client
+   * cannot buy a turbocharger for 100 ₸.
+   */
+  async init(orderId: string, userId: string): Promise<PaymentInitResponse> {
+    const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Заказ не найден.');
+    if (order.userId !== userId) throw new ForbiddenException('Это не ваш заказ.');
+    if (order.status !== OrderStatus.AWAITING_PAYMENT) {
+      throw new BadRequestException('Заказ не ожидает оплаты.');
+    }
+
+    // Reuse the pending payment so a retry with another card keeps the same invoice.
+    let payment = await this.paymentRepo.findOne({ where: { orderId } });
+    if (!payment) {
+      payment = this.paymentRepo.create({
+        orderId,
+        invoiceId: `OP-${randomUUID().slice(0, 8).toUpperCase()}`,
+        amount: Number(order.totalAmount),
+        currency: CURRENCY,
+        status: PaymentStatus.PENDING,
+        refundedAmount: 0,
+      });
+    } else {
+      // The order can't change after creation, but keep the amount authoritative anyway.
+      // A prior Fail left it FAILED — reset to PENDING so the same invoice can be retried.
+      payment.amount = Number(order.totalAmount);
+      payment.status = PaymentStatus.PENDING;
+      payment.failReason = null;
+    }
+    await this.paymentRepo.save(payment);
+
+    return {
+      publicTerminalId: this.client.publicTerminalId,
+      invoiceId: payment.invoiceId,
+      amount: Number(payment.amount),
+      currency: CURRENCY,
+      accountId: order.userId,
+      description: `Оплата заказа ${payment.invoiceId} на optparts.kz`,
+    };
+  }
+
+  async getByOrder(
+    orderId: string,
+    userId: string,
+    isStaff: boolean,
+  ): Promise<Payment> {
+    const payment = await this.paymentRepo.findOne({ where: { orderId } });
+    if (!payment) throw new NotFoundException('Платёж не найден.');
+    if (!isStaff) {
+      const order = await this.orderRepo.findOne({ where: { id: orderId } });
+      if (!order || order.userId !== userId) {
+        throw new ForbiddenException('Нет доступа к этому платежу.');
+      }
+    }
+    return payment;
+  }
+
+  /** Append-only webhook log — audit trail + forensics for HMAC-invalid deliveries. */
+  async logEvent(
+    type: PaymentEventType,
+    body: TipTopPayWebhookBody,
+    hmacValid: boolean,
+  ): Promise<void> {
+    await this.eventRepo.save(
+      this.eventRepo.create({
+        type,
+        invoiceId: body.InvoiceId ?? null,
+        transactionId: body.TransactionId != null ? String(body.TransactionId) : null,
+        hmacValid,
+        body: body as unknown as Record<string, unknown>,
+      }),
+    );
+  }
+
+  /**
+   * Money is in. Mark the payment paid, then place the order with suppliers.
+   *
+   * IDEMPOTENCY — atomic guarded update, NOT check-then-act. TipTopPay retries webhooks
+   * and can deliver the same Pay concurrently. The transition PENDING -> PAID is done as
+   * a single conditional UPDATE (…WHERE invoiceId = ? AND status = 'pending'); the DB
+   * picks exactly one winner. Only the caller whose UPDATE affected a row may go on to
+   * place with suppliers. Everyone else sees affected = 0 and returns — so two racing
+   * deliveries can never double-order from a supplier.
+   *
+   * This mirrors OrdersService.placeWithSuppliers, which claims the order the same way
+   * (AWAITING_PAYMENT -> PAID). Both layers guard the SAME invariant "place exactly once";
+   * the payment-level claim here is the primary guard, the order-level claim is defense in
+   * depth. A prior check-then-act version — read payment_events, place if absent — was
+   * rejected because two concurrent readers both see an empty journal and both place.
+   */
+  async handlePayWebhook(body: TipTopPayWebhookBody): Promise<void> {
+    // Always journal the delivery first (audit + forensics), regardless of who wins.
+    await this.logEvent('pay', body, true);
+
+    const invoiceId = body.InvoiceId ?? '';
+    // Look the payment up first, so we can tell an unknown invoice apart from an
+    // already-paid one and get the orderId for placement.
+    const payment = await this.paymentRepo.findOne({ where: { invoiceId } });
+    if (!payment) {
+      this.logger.error(`Pay webhook for unknown invoice ${body.InvoiceId}.`);
+      return;
+    }
+
+    const transactionId =
+      body.TransactionId != null ? String(body.TransactionId) : null;
+
+    // Atomic claim: PENDING -> PAID as a compare-and-set. Only the single caller whose
+    // UPDATE affects a row proceeds to place; concurrent/duplicate deliveries get 0.
+    const claimed = await this.paymentRepo.update(
+      { invoiceId, status: PaymentStatus.PENDING },
+      {
+        status: PaymentStatus.PAID,
+        transactionId,
+        cardLastFour: body.CardLastFour ?? null,
+        cardType: body.CardType ?? null,
+        paidAt: new Date(),
+        raw: body as unknown as Record<string, unknown>,
+      },
+    );
+    if (!claimed.affected) {
+      // Already paid by a concurrent or replayed Pay delivery — must NOT place again.
+      this.logger.warn(
+        `Duplicate/late Pay webhook for invoice ${invoiceId} (transaction ${body.TransactionId}) — payment already claimed, skipping placement.`,
+      );
+      return;
+    }
+
+    // We won the claim: we are the single caller allowed to place with suppliers.
+    // placeWithSuppliers is itself idempotent (its own AWAITING_PAYMENT -> PAID order
+    // claim), so this is defense in depth guarding the same "place exactly once" invariant.
+    await this.orders.placeWithSuppliers(payment.orderId);
+  }
+
+  /** Bank declined. The order stays in awaiting_payment — the customer may retry. */
+  async handleFailWebhook(body: TipTopPayWebhookBody): Promise<void> {
+    await this.logEvent('fail', body, true);
+
+    const payment = await this.paymentRepo.findOne({
+      where: { invoiceId: body.InvoiceId ?? '' },
+    });
+    if (!payment) {
+      this.logger.error(`Fail webhook for unknown invoice ${body.InvoiceId}.`);
+      return;
+    }
+
+    payment.status = PaymentStatus.FAILED;
+    payment.failReason = body.Reason ?? body.Status ?? 'Отказ банка';
+    payment.raw = body as unknown as Record<string, unknown>;
+    await this.paymentRepo.save(payment);
+  }
+
+  /** Manager-initiated refund (full or partial). */
+  async refund(
+    orderId: string,
+    amount: number,
+    reason: string | null,
+  ): Promise<Payment> {
+    const payment = await this.paymentRepo.findOne({ where: { orderId } });
+    if (!payment) throw new NotFoundException('Платёж не найден.');
+    if (
+      payment.status !== PaymentStatus.PAID &&
+      payment.status !== PaymentStatus.PARTIALLY_REFUNDED
+    ) {
+      throw new BadRequestException('Возврат возможен только по оплаченному заказу.');
+    }
+    if (!payment.transactionId) {
+      throw new BadRequestException('У платежа нет транзакции в TipTopPay.');
+    }
+
+    const remaining = Number(payment.amount) - Number(payment.refundedAmount);
+    if (amount <= 0 || amount > remaining) {
+      throw new BadRequestException(
+        `Сумма возврата должна быть от 0.01 до ${remaining}.`,
+      );
+    }
+
+    // Call TipTopPay first. If it declines, throw and leave the local payment untouched.
+    const result = await this.client.refund(payment.transactionId, amount);
+    if (!result.Success) {
+      throw new BadRequestException(
+        `TipTopPay отклонил возврат: ${result.Message ?? 'причина не указана'}`,
+      );
+    }
+
+    payment.refundedAmount = Number(payment.refundedAmount) + amount;
+    payment.status =
+      payment.refundedAmount >= Number(payment.amount)
+        ? PaymentStatus.REFUNDED
+        : PaymentStatus.PARTIALLY_REFUNDED;
+    await this.paymentRepo.save(payment);
+
+    this.logger.log(
+      `Refunded ${amount} ${payment.currency} on order ${orderId}. Reason: ${reason ?? '—'}`,
+    );
+
+    return payment;
+  }
+}
