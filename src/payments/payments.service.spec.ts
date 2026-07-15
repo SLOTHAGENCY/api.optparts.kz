@@ -136,6 +136,95 @@ describe('PaymentsService.init', () => {
 
     await expect(service.init('order-1', 'user-1')).rejects.toThrow(BadRequestException);
   });
+
+  // FINDING A (double charge): payment-first checkout. handlePayWebhook commits the payment
+  // PENDING -> PAID, then placeWithSuppliers claims the order in a transaction; if that
+  // transaction throws (DB fault) the order rolls back to AWAITING_PAYMENT while the payment
+  // stays committed PAID. The order is now AWAITING_PAYMENT yet already PAID. A customer
+  // clicking "Оплатить" again must NOT reset that PAID payment to PENDING and open the widget
+  // — that would charge a second time for an already-paid order. init must refuse.
+  it('refuses to re-initiate when the payment is already PAID (rollback edge — no double charge)', async () => {
+    const { service, payments, paymentRepo } = makeDeps({
+      order: { id: 'order-1', userId: 'user-1', status: OrderStatus.AWAITING_PAYMENT, totalAmount: 100000 },
+      payment: {
+        id: 'pay-1',
+        orderId: 'order-1',
+        invoiceId: 'OP-ABC12345',
+        amount: 100000,
+        currency: 'KZT',
+        status: PaymentStatus.PAID,
+        transactionId: '455',
+        refundedAmount: 0,
+      },
+    });
+
+    await expect(service.init('order-1', 'user-1')).rejects.toThrow(BadRequestException);
+    // The PAID payment must be left untouched — no reset to PENDING, no save.
+    expect(payments[0].status).toBe(PaymentStatus.PAID);
+    expect(paymentRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('refuses to re-initiate a REFUNDED or PARTIALLY_REFUNDED payment', async () => {
+    for (const status of [PaymentStatus.REFUNDED, PaymentStatus.PARTIALLY_REFUNDED]) {
+      const { service, payments, paymentRepo } = makeDeps({
+        order: { id: 'order-1', userId: 'user-1', status: OrderStatus.AWAITING_PAYMENT, totalAmount: 100000 },
+        payment: {
+          id: 'pay-1',
+          orderId: 'order-1',
+          invoiceId: 'OP-ABC12345',
+          amount: 100000,
+          currency: 'KZT',
+          status,
+          refundedAmount: status === PaymentStatus.PARTIALLY_REFUNDED ? 40000 : 100000,
+        },
+      });
+
+      await expect(service.init('order-1', 'user-1')).rejects.toThrow(BadRequestException);
+      expect(payments[0].status).toBe(status);
+      expect(paymentRepo.save).not.toHaveBeenCalled();
+    }
+  });
+
+  it('re-initiates a FAILED payment back to PENDING for a retry after decline', async () => {
+    const { service, payments } = makeDeps({
+      payment: {
+        id: 'pay-1',
+        orderId: 'order-1',
+        invoiceId: 'OP-ABC12345',
+        amount: 100000,
+        currency: 'KZT',
+        status: PaymentStatus.FAILED,
+        failReason: 'InsufficientFunds',
+        refundedAmount: 0,
+      },
+    });
+
+    const res = await service.init('order-1', 'user-1');
+
+    expect(res.invoiceId).toBe('OP-ABC12345');
+    expect(res.amount).toBe(100000);
+    expect(payments[0].status).toBe(PaymentStatus.PENDING);
+    expect(payments[0].failReason).toBeNull();
+  });
+
+  it('still returns widget params for a PENDING payment (first attempt in flight)', async () => {
+    const { service, payments } = makeDeps({
+      payment: {
+        id: 'pay-1',
+        orderId: 'order-1',
+        invoiceId: 'OP-ABC12345',
+        amount: 100000,
+        currency: 'KZT',
+        status: PaymentStatus.PENDING,
+        refundedAmount: 0,
+      },
+    });
+
+    const res = await service.init('order-1', 'user-1');
+
+    expect(res.invoiceId).toBe('OP-ABC12345');
+    expect(payments[0].status).toBe(PaymentStatus.PENDING);
+  });
 });
 
 describe('PaymentsService.getByOrder', () => {

@@ -79,6 +79,21 @@ export class PaymentsService {
         refundedAmount: 0,
       });
     } else {
+      // Guard against a double charge. In the payment-first rollback edge, handlePayWebhook
+      // commits the payment PENDING -> PAID and then placeWithSuppliers claims the order in a
+      // transaction; if that transaction throws (DB fault) the order rolls back to
+      // AWAITING_PAYMENT while the payment stays committed PAID. The order is now
+      // AWAITING_PAYMENT yet already paid. Resetting a paid-side payment to PENDING and
+      // handing back fresh widget params would charge the customer a SECOND time for an order
+      // that is already paid. Only PENDING (first attempt) and FAILED (retry after decline)
+      // may be (re)initiated.
+      if (
+        payment.status === PaymentStatus.PAID ||
+        payment.status === PaymentStatus.PARTIALLY_REFUNDED ||
+        payment.status === PaymentStatus.REFUNDED
+      ) {
+        throw new BadRequestException('Этот заказ уже оплачен.');
+      }
       // The order can't change after creation, but keep the amount authoritative anyway.
       // A prior Fail left it FAILED — reset to PENDING so the same invoice can be retried.
       payment.amount = Number(order.totalAmount);
