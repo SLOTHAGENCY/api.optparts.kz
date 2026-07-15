@@ -175,36 +175,73 @@ export class PaymentsService {
         raw: body as unknown as Record<string, unknown>,
       },
     );
-    if (!claimed.affected) {
-      // Already paid by a concurrent or replayed Pay delivery — must NOT place again.
+
+    if (claimed.affected) {
+      // We won the PENDING -> PAID claim: drive placement.
+      await this.orders.placeWithSuppliers(payment.orderId);
+      return;
+    }
+
+    // We did NOT win the claim. That does NOT mean placement already happened — a prior
+    // delivery may have committed PAID and then FAILED to place (placeWithSuppliers threw,
+    // its transaction rolled the order back to AWAITING_PAYMENT). So we must re-drive
+    // placement whenever the payment is PAID, not return blindly on affected:0.
+    // placeWithSuppliers is idempotent (its own order-level AWAITING_PAYMENT -> PAID claim):
+    // if placement already completed, it no-ops; if it never happened, this delivery drives
+    // it. Two deliveries can never contact a supplier twice — that order-level claim, not
+    // this early return, is what enforces "place exactly once".
+    const current = await this.paymentRepo.findOne({ where: { invoiceId } });
+    if (!current || current.status !== PaymentStatus.PAID) {
+      // Not payable (e.g. FAILED, or a race we cannot reconcile). Never place.
       this.logger.warn(
-        `Duplicate/late Pay webhook for invoice ${invoiceId} (transaction ${body.TransactionId}) — payment already claimed, skipping placement.`,
+        `Pay webhook for invoice ${invoiceId} (transaction ${body.TransactionId}) — payment not PAID (status ${current?.status ?? 'unknown'}), skipping placement.`,
       );
       return;
     }
 
-    // We won the claim: we are the single caller allowed to place with suppliers.
-    // placeWithSuppliers is itself idempotent (its own AWAITING_PAYMENT -> PAID order
-    // claim), so this is defense in depth guarding the same "place exactly once" invariant.
-    await this.orders.placeWithSuppliers(payment.orderId);
+    this.logger.warn(
+      `Duplicate/late Pay webhook for already-PAID invoice ${invoiceId} (transaction ${body.TransactionId}) — re-driving idempotent placement.`,
+    );
+    await this.orders.placeWithSuppliers(current.orderId);
   }
 
   /** Bank declined. The order stays in awaiting_payment — the customer may retry. */
   async handleFailWebhook(body: TipTopPayWebhookBody): Promise<void> {
     await this.logEvent('fail', body, true);
 
-    const payment = await this.paymentRepo.findOne({
-      where: { invoiceId: body.InvoiceId ?? '' },
-    });
+    const invoiceId = body.InvoiceId ?? '';
+    // Look the payment up first only to tell "unknown invoice" apart from "not pending".
+    const payment = await this.paymentRepo.findOne({ where: { invoiceId } });
     if (!payment) {
       this.logger.error(`Fail webhook for unknown invoice ${body.InvoiceId}.`);
       return;
     }
 
-    payment.status = PaymentStatus.FAILED;
-    payment.failReason = body.Reason ?? body.Status ?? 'Отказ банка';
-    payment.raw = body as unknown as Record<string, unknown>;
-    await this.paymentRepo.save(payment);
+    const failReason = body.Reason ?? body.Status ?? 'Отказ банка';
+
+    // Guarded compare-and-set mirroring the Pay claim: ONLY a PENDING payment may become
+    // FAILED. InvoiceIds are reused across retries — a declined attempt leaves the order
+    // payable, the customer retries the SAME invoice, `init` resets it to PENDING, and a
+    // later attempt may succeed (PAID) and place with suppliers. TipTopPay can then
+    // REDELIVER the old Fail. An unconditional write here would flip that PAID, placed,
+    // money-captured order to FAILED — and refund refuses anything but PAID. Never overwrite
+    // a non-pending payment.
+    const updated = await this.paymentRepo.update(
+      { invoiceId, status: PaymentStatus.PENDING },
+      {
+        status: PaymentStatus.FAILED,
+        failReason,
+        raw: body as unknown as Record<string, unknown>,
+      },
+    );
+    if (!updated.affected) {
+      // Late/duplicate Fail for a payment that is no longer pending (already PAID, or
+      // already FAILED). Log and return — must never clobber a PAID payment.
+      this.logger.warn(
+        `Fail webhook for invoice ${invoiceId} (transaction ${body.TransactionId}) — payment not pending (status ${payment.status}), ignoring.`,
+      );
+      return;
+    }
   }
 
   /** Manager-initiated refund (full or partial). */
@@ -225,7 +262,8 @@ export class PaymentsService {
       throw new BadRequestException('У платежа нет транзакции в TipTopPay.');
     }
 
-    const remaining = Number(payment.amount) - Number(payment.refundedAmount);
+    const prevRefunded = Number(payment.refundedAmount);
+    const remaining = Number(payment.amount) - prevRefunded;
     if (amount <= 0 || amount > remaining) {
       throw new BadRequestException(
         `Сумма возврата должна быть от 0.01 до ${remaining}.`,
@@ -240,12 +278,29 @@ export class PaymentsService {
       );
     }
 
-    payment.refundedAmount = Number(payment.refundedAmount) + amount;
-    payment.status =
-      payment.refundedAmount >= Number(payment.amount)
+    const newRefunded = prevRefunded + amount;
+    const newStatus =
+      newRefunded >= Number(payment.amount)
         ? PaymentStatus.REFUNDED
         : PaymentStatus.PARTIALLY_REFUNDED;
-    await this.paymentRepo.save(payment);
+
+    // Guarded compare-and-set on refundedAmount instead of a read-modify-write save().
+    // Two managers refunding the same order concurrently both pass the remaining-amount
+    // check above (both read the same prevRefunded); an unconditional save would let the
+    // second overwrite the first and over-refund the local ledger. Conditioning the UPDATE
+    // on the refundedAmount we observed means only one of the racing writers wins; the loser
+    // sees affected:0 and is rejected rather than accumulating past `remaining`.
+    const applied = await this.paymentRepo.update(
+      { orderId, refundedAmount: prevRefunded },
+      { refundedAmount: newRefunded, status: newStatus },
+    );
+    if (!applied.affected) {
+      throw new BadRequestException(
+        'Возврат изменился параллельно. Обновите платёж и повторите.',
+      );
+    }
+    payment.refundedAmount = newRefunded;
+    payment.status = newStatus;
 
     this.logger.log(
       `Refunded ${amount} ${payment.currency} on order ${orderId}. Reason: ${reason ?? '—'}`,

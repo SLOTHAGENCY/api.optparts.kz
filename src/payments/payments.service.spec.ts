@@ -39,7 +39,9 @@ function makeDeps(over: { order?: any; payment?: any } = {}) {
           (where.id === undefined || x.id === where.id) &&
           (where.orderId === undefined || x.orderId === where.orderId) &&
           (where.invoiceId === undefined || x.invoiceId === where.invoiceId) &&
-          (where.status === undefined || x.status === where.status),
+          (where.status === undefined || x.status === where.status) &&
+          (where.refundedAmount === undefined ||
+            Number(x.refundedAmount) === Number(where.refundedAmount)),
       );
       if (!p) return { affected: 0 };
       Object.assign(p, patch);
@@ -66,7 +68,23 @@ function makeDeps(over: { order?: any; payment?: any } = {}) {
     save: jest.fn(async (o: any) => o),
   };
 
-  const orders = { placeWithSuppliers: jest.fn(async () => order) };
+  // Honest model of OrdersService.placeWithSuppliers' order-level compare-and-set claim:
+  // the order is claimed AWAITING_PAYMENT -> PAID exactly once, and only that first caller
+  // "contacts a supplier". Replays / concurrent deliveries find it already claimed and
+  // no-op. supplierContacts is the TRUE invariant the concurrency tests must assert against
+  // (no double supplier contact) — placeWithSuppliers itself may legitimately be CALLED more
+  // than once now, it just no-ops the second time.
+  const supplierContacts: string[] = [];
+  const orders = {
+    placeWithSuppliers: jest.fn(async (orderId: string) => {
+      if (order.status === OrderStatus.AWAITING_PAYMENT) {
+        order.status = OrderStatus.PAID;
+        supplierContacts.push(orderId);
+      }
+      return order;
+    }),
+    supplierContacts,
+  };
   const client = {
     publicTerminalId: 'pk_test',
     refund: jest.fn(async () => ({ Success: true, Message: null, Model: {} })),
@@ -80,7 +98,7 @@ function makeDeps(over: { order?: any; payment?: any } = {}) {
     client as any,
   );
 
-  return { service, paymentRepo, eventRepo, orderRepo, orders, client, order, payments, events };
+  return { service, paymentRepo, eventRepo, orderRepo, orders, client, order, payments, events, supplierContacts };
 }
 
 describe('PaymentsService.init', () => {
@@ -117,6 +135,47 @@ describe('PaymentsService.init', () => {
     });
 
     await expect(service.init('order-1', 'user-1')).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('PaymentsService.getByOrder', () => {
+  function withPayment() {
+    return makeDeps({
+      payment: {
+        id: 'pay-1',
+        orderId: 'order-1',
+        invoiceId: 'OP-ABC12345',
+        amount: 100000,
+        status: PaymentStatus.PAID,
+        refundedAmount: 0,
+      },
+    });
+  }
+
+  it('returns the payment for the order owner', async () => {
+    const { service, payments } = withPayment();
+
+    const res = await service.getByOrder('order-1', 'user-1', false);
+
+    expect(res).toBe(payments[0]);
+  });
+
+  it('denies a non-owner who is not staff', async () => {
+    const { service } = withPayment();
+
+    await expect(service.getByOrder('order-1', 'intruder', false)).rejects.toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('lets staff read any payment, bypassing the owner check', async () => {
+    const { service, orderRepo, payments } = withPayment();
+
+    const res = await service.getByOrder('order-1', 'not-the-owner', true);
+
+    expect(res).toBe(payments[0]);
+    // Staff bypass short-circuits before the order lookup.
+    expect(orderRepo.findOne).not.toHaveBeenCalled();
   });
 });
 
@@ -158,28 +217,52 @@ describe('PaymentsService.handlePayWebhook', () => {
   });
 
   // The single most dangerous bug in this integration: TipTopPay retries webhooks.
-  it('does not place the order twice when the same webhook arrives again', async () => {
-    const { service, orders } = withPendingPayment();
+  // The redelivery now re-drives placeWithSuppliers (it may recover a paid-but-unplaced
+  // order), so the invariant is NOT "called once" but "the supplier is contacted at most
+  // once" — enforced by placeWithSuppliers' own order-level claim, modeled by the mock.
+  it('does not contact the supplier twice when the same webhook arrives again', async () => {
+    const { service, supplierContacts } = withPendingPayment();
 
     await service.handlePayWebhook(payBody);
     await service.handlePayWebhook(payBody);
 
-    expect(orders.placeWithSuppliers).toHaveBeenCalledTimes(1);
+    expect(supplierContacts).toEqual(['order-1']);
   });
 
-  // Override requirement: two Pay deliveries racing must still place exactly once.
-  // The paymentRepo.update mock models a real compare-and-set, so a check-then-act
-  // implementation (both readers see an empty event log and both place) fails this;
-  // the atomic PENDING->PAID claim passes it.
-  it('places exactly once when two identical Pay webhooks arrive concurrently', async () => {
-    const { service, orders } = withPendingPayment();
+  // Override requirement: two Pay deliveries racing must never double-contact a supplier.
+  // The paymentRepo.update mock models a real compare-and-set, and placeWithSuppliers is
+  // modeled with its own order-level claim; a check-then-act implementation (both readers
+  // see an empty event log and both place) would contact the supplier twice.
+  it('contacts the supplier exactly once when two identical Pay webhooks race', async () => {
+    const { service, supplierContacts } = withPendingPayment();
 
     await Promise.all([
       service.handlePayWebhook(payBody),
       service.handlePayWebhook(payBody),
     ]);
 
-    expect(orders.placeWithSuppliers).toHaveBeenCalledTimes(1);
+    expect(supplierContacts).toEqual(['order-1']);
+  });
+
+  // FINDING 2: a placement failure must be recoverable by a redelivered Pay. The first
+  // delivery commits PENDING -> PAID, then placeWithSuppliers throws (supplier hiccup); the
+  // order rolls back to AWAITING_PAYMENT. TipTopPay redelivers the Pay: it now sees the
+  // payment already PAID (affected:0) but MUST still re-drive placement. The pre-fix code
+  // returned early on affected:0, so placeWithSuppliers was called only once and the paid
+  // order was never placed — this test fails against it (called once, supplier never
+  // contacted). After the fix the redelivery re-drives placement.
+  it('re-drives placement on redelivery when the first placement failed', async () => {
+    const { service, orders, payments, supplierContacts } = withPendingPayment();
+    orders.placeWithSuppliers.mockRejectedValueOnce(new Error('supplier unavailable'));
+
+    await expect(service.handlePayWebhook(payBody)).rejects.toThrow('supplier unavailable');
+    expect(payments[0].status).toBe(PaymentStatus.PAID);
+    expect(supplierContacts).toEqual([]); // placement threw — nobody contacted yet
+
+    await service.handlePayWebhook(payBody);
+
+    expect(orders.placeWithSuppliers).toHaveBeenCalledTimes(2);
+    expect(supplierContacts).toEqual(['order-1']);
   });
 
   it('ignores a webhook whose invoiceId matches no payment', async () => {
@@ -212,6 +295,35 @@ describe('PaymentsService.handleFailWebhook', () => {
 
     expect(payments[0].status).toBe(PaymentStatus.FAILED);
     expect(payments[0].failReason).toBe('InsufficientFunds');
+    expect(orders.placeWithSuppliers).not.toHaveBeenCalled();
+  });
+
+  // FINDING 1: invoiceIds are reused, so a stale Fail can be redelivered after the SAME
+  // invoice was retried and PAID (and placed). An unconditional write would flip that PAID,
+  // placed, money-captured order to FAILED and block any refund. The guarded update must
+  // leave a non-pending payment untouched. Fails against the pre-fix unconditional save.
+  it('never overwrites a payment that is already PAID (late/redelivered Fail)', async () => {
+    const { service, payments, orders } = makeDeps({
+      payment: {
+        id: 'pay-1',
+        orderId: 'order-1',
+        invoiceId: 'OP-ABC12345',
+        amount: 100000,
+        transactionId: '455',
+        status: PaymentStatus.PAID,
+        refundedAmount: 0,
+      },
+    });
+
+    await service.handleFailWebhook({
+      TransactionId: 456,
+      InvoiceId: 'OP-ABC12345',
+      Reason: 'InsufficientFunds',
+    });
+
+    expect(payments[0].status).toBe(PaymentStatus.PAID);
+    expect(payments[0].failReason).toBeUndefined();
+    // The paid order is still refundable (refund requires PAID/PARTIALLY_REFUNDED).
     expect(orders.placeWithSuppliers).not.toHaveBeenCalled();
   });
 });
@@ -285,5 +397,30 @@ describe('PaymentsService.refund', () => {
     const { service } = makeDeps();
 
     await expect(service.refund('order-1', 100, null)).rejects.toThrow(NotFoundException);
+  });
+
+  // FINDING 4: two managers refunding the same order concurrently both pass the
+  // remaining-amount check (both read refundedAmount:0). A read-modify-write save() would
+  // let the second overwrite the first — 60000 + 60000 recorded as 60000-then-60000, and
+  // over-refunding past the 100000 remaining. The guarded compare-and-set on refundedAmount
+  // lets exactly one win; the loser is rejected, so the ledger never exceeds the amount.
+  it('does not over-refund when two refunds run concurrently', async () => {
+    const { service, payments, client } = paid();
+
+    const results = await Promise.allSettled([
+      service.refund('order-1', 60000, null),
+      service.refund('order-1', 60000, null),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(payments[0].refundedAmount).toBe(60000);
+    expect(payments[0].refundedAmount).toBeLessThanOrEqual(100000);
+    expect(payments[0].status).toBe(PaymentStatus.PARTIALLY_REFUNDED);
+    // Both attempts passed the amount check and hit TipTopPay (TipTopPay-first is preserved),
+    // but only one is recorded locally.
+    expect(client.refund).toHaveBeenCalledTimes(2);
   });
 });
