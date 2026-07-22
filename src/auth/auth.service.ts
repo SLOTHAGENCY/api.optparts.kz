@@ -59,7 +59,8 @@ export class AuthService {
     });
     await this.passwordResetRepository.save(record);
 
-    const base = process.env.FRONTEND_RESET_URL || 'https://optparts.kz/reset-password';
+    // Фронт на HashRouter — токен идёт после '#', иначе роутер его не увидит.
+    const base = process.env.FRONTEND_RESET_URL || 'https://optparts.kz/#/reset-password';
     const resetUrl = `${base}?token=${rawToken}`;
     await this.mailService.sendPasswordResetEmail(user.email, resetUrl);
   }
