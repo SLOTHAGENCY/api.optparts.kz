@@ -5,38 +5,23 @@ import { NestFactory, Reflector } from '@nestjs/core';
 import { ClassSerializerInterceptor, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { useContainer } from 'class-validator';
-import * as express from 'express';
-import type { Request } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // TipTopPay signs webhooks with an HMAC over the RAW request body. `rawBody: true` makes
+  // Nest's own global body parsers stash the untouched buffer on `req.rawBody` (read by the
+  // webhook controller for signature verification) for every route.
+  //
+  // Do NOT reintroduce a path-scoped `app.use('/api/payments/webhook', express.json(...))`:
+  // its middleware is named `jsonParser`/`urlencodedParser`, and Nest's ExpressAdapter skips
+  // registering its GLOBAL parsers whenever a middleware with that name already exists —
+  // matching on name only, ignoring the mounted path. That silently disables body parsing on
+  // every OTHER route (login/register bodies arrive as `{}`).
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   // const app = await NestFactory.create(AppModule, {
   //   logger: ['error', 'warn', 'log', 'debug', 'verbose'],
   // });
-
-  // TipTopPay signs webhooks with an HMAC over the RAW request body. Express would hand us
-  // only the parsed object, and re-serializing it changes key order/whitespace — the
-  // signature would never match. Capture the raw buffer, but ONLY on the webhook path.
-  app.use(
-    '/api/payments/webhook',
-    express.json({
-      verify: (req: Request & { rawBody?: Buffer }, _res, buf) => {
-        req.rawBody = Buffer.from(buf);
-      },
-    }),
-  );
-  // TipTopPay may also post application/x-www-form-urlencoded.
-  app.use(
-    '/api/payments/webhook',
-    express.urlencoded({
-      extended: true,
-      verify: (req: Request & { rawBody?: Buffer }, _res, buf) => {
-        req.rawBody = Buffer.from(buf);
-      },
-    }),
-  );
 
   // Fix: allows class-validator to use NestJS DI (required for custom validators)
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
