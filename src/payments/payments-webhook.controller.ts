@@ -15,6 +15,7 @@ import { PaymentsService, TipTopPayWebhookBody } from './payments.service';
 import { PaymentEventType } from './entities/payment-event.entity';
 import { TipTopPayClient } from './tiptoppay.client';
 import { isValidHmac } from './tiptoppay.hmac';
+import { createHmac } from 'crypto';
 
 /** Express request with the raw body captured in main.ts (needed for HMAC). */
 type RawRequest = Request & { rawBody?: Buffer };
@@ -121,6 +122,26 @@ export class PaymentsWebhookController {
   ): Promise<void> {
     const signature = req.headers['x-content-hmac'] as string | undefined;
     const raw = req.rawBody ?? Buffer.from(JSON.stringify(body), 'utf8');
+
+    // --- TEMP DIAGNOSTIC (remove after webhook signature is confirmed) ---
+    try {
+      const hmacHeaders = Object.entries(req.headers)
+        .filter(([k]) => k.toLowerCase().includes('hmac') || k.toLowerCase().includes('sign'))
+        .map(([k, v]) => `${k}=${v}`)
+        .join(' | ');
+      const computed = createHmac('sha256', this.client.apiSecret)
+        .update(raw)
+        .digest('base64');
+      this.logger.warn(
+        `[WEBHOOK-DIAG] type=${type} ct=${req.headers['content-type']} ` +
+          `rawBodyPresent=${!!req.rawBody} rawLen=${raw.length} ` +
+          `hmacHeaders=[${hmacHeaders}] computedFromRaw=${computed} ` +
+          `allHeaderKeys=${Object.keys(req.headers).join(',')}`,
+      );
+    } catch (e) {
+      this.logger.warn(`[WEBHOOK-DIAG] failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    // --- END TEMP DIAGNOSTIC ---
 
     if (!isValidHmac(raw, signature, this.client.apiSecret)) {
       this.logger.error(
