@@ -15,7 +15,6 @@ import { PaymentsService, TipTopPayWebhookBody } from './payments.service';
 import { PaymentEventType } from './entities/payment-event.entity';
 import { TipTopPayClient } from './tiptoppay.client';
 import { isValidHmac } from './tiptoppay.hmac';
-import { createHmac } from 'crypto';
 
 /** Express request with the raw body captured in main.ts (needed for HMAC). */
 type RawRequest = Request & { rawBody?: Buffer };
@@ -120,32 +119,21 @@ export class PaymentsWebhookController {
     type: PaymentEventType,
     body: TipTopPayWebhookBody,
   ): Promise<void> {
-    const signature = req.headers['x-content-hmac'] as string | undefined;
     const raw = req.rawBody ?? Buffer.from(JSON.stringify(body), 'utf8');
 
-    // --- TEMP DIAGNOSTIC (remove after webhook signature is confirmed) ---
-    try {
-      const hmacHeaders = Object.entries(req.headers)
-        .filter(([k]) => k.toLowerCase().includes('hmac') || k.toLowerCase().includes('sign'))
-        .map(([k, v]) => `${k}=${v}`)
-        .join(' | ');
-      const computed = createHmac('sha256', this.client.apiSecret)
-        .update(raw)
-        .digest('base64');
-      this.logger.warn(
-        `[WEBHOOK-DIAG] type=${type} ct=${req.headers['content-type']} ` +
-          `rawBodyPresent=${!!req.rawBody} rawLen=${raw.length} ` +
-          `hmacHeaders=[${hmacHeaders}] computedFromRaw=${computed} ` +
-          `allHeaderKeys=${Object.keys(req.headers).join(',')}`,
-      );
-    } catch (e) {
-      this.logger.warn(`[WEBHOOK-DIAG] failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-    // --- END TEMP DIAGNOSTIC ---
+    // TipTopPay signs the webhook body with our API secret and delivers that signature in the
+    // `Content-HMAC` header. It ALSO sends an `X-Content-HMAC` header, but that one is signed
+    // with a different, platform-level key and does NOT match our terminal secret (confirmed
+    // against live webhooks — the docs' mention of `X-Content-HMAC` is misleading). Accept
+    // whichever header validates against our secret so both conventions keep working.
+    const signatures = [req.headers['content-hmac'], req.headers['x-content-hmac']]
+      .flat()
+      .filter((v): v is string => typeof v === 'string' && v.length > 0);
 
-    if (!isValidHmac(raw, signature, this.client.apiSecret)) {
+    const valid = signatures.some((sig) => isValidHmac(raw, sig, this.client.apiSecret));
+    if (!valid) {
       this.logger.error(
-        `Forged ${type} webhook rejected: bad X-Content-HMAC for invoice ${body.InvoiceId}.`,
+        `Forged ${type} webhook rejected: no valid Content-HMAC/X-Content-HMAC for invoice ${body.InvoiceId}.`,
       );
       try {
         await this.payments.logEvent(type, body, false);

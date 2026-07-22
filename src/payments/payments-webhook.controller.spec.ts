@@ -52,6 +52,40 @@ describe('PaymentsWebhookController', () => {
     expect(service.logEvent).toHaveBeenCalledWith('pay', body, false);
   });
 
+  // Production reality: TipTopPay puts the signature made with OUR secret in `Content-HMAC`,
+  // and a DIFFERENT (platform-key) value in `X-Content-HMAC`. We must accept the payment.
+  it('accepts a signature delivered in the Content-HMAC header', async () => {
+    const { controller, service } = makeController();
+    const raw = JSON.stringify(payBody);
+    const req = {
+      rawBody: Buffer.from(raw, 'utf8'),
+      headers: {
+        'content-hmac': sign(raw), // signed with our secret — valid
+        'x-content-hmac': 'ZGlmZmVyZW50LXBsYXRmb3JtLWtleQ==', // different key — does not match
+      },
+    } as any;
+
+    const res = await controller.pay(req, payBody);
+
+    expect(service.handlePayWebhook).toHaveBeenCalledWith(payBody);
+    expect(res).toEqual({ code: 0 });
+  });
+
+  it('rejects when neither Content-HMAC nor X-Content-HMAC matches our secret', async () => {
+    const { controller, service } = makeController();
+    const raw = JSON.stringify(payBody);
+    const req = {
+      rawBody: Buffer.from(raw, 'utf8'),
+      headers: {
+        'content-hmac': 'bm9wZQ==',
+        'x-content-hmac': 'c3RpbGwtbm9wZQ==',
+      },
+    } as any;
+
+    await expect(controller.pay(req, payBody)).rejects.toMatchObject({ status: 403 });
+    expect(service.handlePayWebhook).not.toHaveBeenCalled();
+  });
+
   // Any non-200 makes TipTopPay retry forever; swallow our own failures.
   it('still answers {code:0} when the handler throws', async () => {
     const { controller, service } = makeController();
