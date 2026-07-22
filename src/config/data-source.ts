@@ -19,6 +19,7 @@ import { AppSetting } from '../settings/entities/app-setting.entity';
 import { CatalogCache } from '../catalog/cache/catalog-cache.entity';
 import { News } from '../news/entities/news.entity';
 import { CatalogNameIndex } from '../catalog/entities/catalog-name-index.entity';
+import { PasswordReset } from '../auth/entities/password-reset.entity';
 dotenv.config();
 
 export const AppDataSource = new DataSource({
@@ -48,6 +49,7 @@ export const AppDataSource = new DataSource({
     CatalogCache,
     News,
     CatalogNameIndex,
+    PasswordReset,
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,

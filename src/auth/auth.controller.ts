@@ -25,6 +25,8 @@ import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
@@ -74,6 +76,41 @@ export class AuthController {
     const user = await this.usersService.findByEmail(dto.email);
     const { accessToken } = await this.authService.login(user);
     return { message: 'Login successful.', accessToken, user };
+  }
+
+  /** POST /auth/forgot-password */
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Запросить восстановление пароля',
+    description:
+      'Принимает email. Если такой аккаунт существует, на почту отправляется письмо со ' +
+      'ссылкой для сброса пароля (ссылка действует 30 минут). В целях безопасности ответ ' +
+      'всегда одинаковый — по нему нельзя определить, зарегистрирован ли email. Авторизация не требуется.',
+  })
+  @ApiResponse({ status: 200, description: 'Если аккаунт существует, письмо со ссылкой отправлено.' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.authService.requestPasswordReset(dto.email);
+    return { message: 'If an account with that email exists, a reset link has been sent.' };
+  }
+
+  /** POST /auth/reset-password */
+  @Public()
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Установить новый пароль по токену',
+    description:
+      'Принимает токен из ссылки в письме и новый пароль. Если токен верный, не просрочен ' +
+      'и ещё не использован — пароль меняется, а токен гасится (повторно им воспользоваться ' +
+      'нельзя). Если токен недействителен или устарел — вернётся ошибка 400. Авторизация не требуется.',
+  })
+  @ApiResponse({ status: 200, description: 'Пароль успешно изменён.' })
+  @ApiResponse({ status: 400, description: 'Токен недействителен, просрочен или уже использован.' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.authService.resetPassword(dto.token, dto.newPassword);
+    return { message: 'Password has been reset successfully. You can now log in.' };
   }
 
   /** POST /auth/logout */

@@ -49,6 +49,7 @@ import { CatalogNameIndex } from './catalog/entities/catalog-name-index.entity';
 import { Payment } from './payments/entities/payment.entity';
 import { PaymentEvent } from './payments/entities/payment-event.entity';
 import { PaymentsModule } from './payments/payments.module';
+import { PasswordReset } from './auth/entities/password-reset.entity';
 
 @Module({
   imports: [
@@ -61,7 +62,7 @@ import { PaymentsModule } from './payments/payments.module';
         username: process.env.DB_USERNAME || 'postgres',
         password: process.env.DB_PASSWORD || 'postgres',
         database: process.env.DB_NAME || 'nestjs_auth',
-        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting, BrandMarkup, CatalogCache, News, Vehicle, CatalogNameIndex, Payment, PaymentEvent],
+        entities: [User, Product, ProductImage, ProductProperty, Cart, CartItem, Address, Category, Brand, Order, OrderItem, Supplier, SearchLog, SupplierOrder, PartnerProduct, AppSetting, BrandMarkup, CatalogCache, News, Vehicle, CatalogNameIndex, Payment, PaymentEvent, PasswordReset],
         migrations: ['dist/migrations/*.js'],
         synchronize: process.env.NODE_ENV === 'development',
         logging: process.env.NODE_ENV === 'development',
