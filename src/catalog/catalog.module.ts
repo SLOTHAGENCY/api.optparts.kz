@@ -18,10 +18,16 @@ import { CatalogController } from './controllers/catalog.controller';
 import { OemController } from './controllers/oem.controller';
 import { GlobalSearchController } from './controllers/global-search.controller';
 import { SearchModule } from '../search/search.module';
+import { isPartInfoEnabled } from './clients/catalog-config.util';
+
+// PartsController (/parts/*) is the "информация о детали" surface — registered only when
+// PARTSINDEX_PARTINFO_ENABLED !== 'false'. Read at module-decoration time (dotenv is loaded first
+// in main.ts, same pattern as SERVE_TEST_FRONTEND in app.module.ts).
+const partInfoControllers = isPartInfoEnabled() ? [PartsController] : [];
 
 @Module({
   imports: [TypeOrmModule.forFeature([CatalogCache, CatalogNameIndex]), SearchModule],
-  controllers: [PartsController, CatalogController, OemController, GlobalSearchController],
+  controllers: [...partInfoControllers, CatalogController, OemController, GlobalSearchController],
   providers: [
     RateLimiterRegistry,
     PartsIndexClient,

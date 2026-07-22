@@ -6,6 +6,7 @@ import { SearchService } from '../../search/search.service';
 import { NameSearchIndex } from '../name-search/name-search-index.service';
 import { GlobalSearchResultDto, SearchMode } from '../dto/global-search.dto';
 import { SearchGroupDto } from '../../search/dto/search-response.dto';
+import { isPartInfoEnabled } from '../clients/catalog-config.util';
 
 /** Max number of exact groups enriched with a part image per search (best-effort, quota-bound). */
 const MAX_ENRICH = 5;
@@ -29,6 +30,9 @@ export interface GlobalSearchOptions {
 @Injectable()
 export class GlobalSearchService {
   private readonly logger = new Logger(GlobalSearchService.name);
+
+  /** PartsIndex "part info" (brand-by-code + image enrichment) — off when PARTSINDEX_PARTINFO_ENABLED=false. */
+  private readonly partInfoEnabled = isPartInfoEnabled();
 
   constructor(
     private readonly oem: OemCatalogService,
@@ -56,7 +60,9 @@ export class GlobalSearchService {
 
     if (mode === 'article') {
       const [brands, search] = await Promise.all([
-        this.safe('brands', () => this.parts.brandsByCode(q), []),
+        this.partInfoEnabled
+          ? this.safe('brands', () => this.parts.brandsByCode(q), [])
+          : Promise.resolve([]),
         this.safe('offers', () => this.searchService.search(q, undefined, opts.userId), {
           query: { article: q, brand: null },
           exact: [],
@@ -92,6 +98,7 @@ export class GlobalSearchService {
    * for a given group just leaves that group's image as null — never throws out of search.
    */
   private async enrichExactImages(exact: SearchGroupDto[]): Promise<void> {
+    if (!this.partInfoEnabled) return;
     const targets = exact.slice(0, MAX_ENRICH);
     if (exact.length > MAX_ENRICH) {
       this.logger.warn(`Image enrichment capped at ${MAX_ENRICH} exact groups (got ${exact.length})`);
