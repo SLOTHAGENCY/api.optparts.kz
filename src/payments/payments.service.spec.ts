@@ -417,6 +417,70 @@ describe('PaymentsService.handleFailWebhook', () => {
   });
 });
 
+describe('PaymentsService.isOrderPayable', () => {
+  // Guards the narrow money-loss race: the customer completes the card charge AFTER the
+  // 30-minute cron cancelled the order. TipTopPay sends a Check BEFORE charging; we must
+  // reject it so the bank never takes money for an order that can no longer be placed.
+  function withOrder(status: OrderStatus) {
+    return makeDeps({
+      order: { id: 'order-1', userId: 'user-1', status, totalAmount: 100000 },
+      payment: {
+        id: 'pay-1',
+        orderId: 'order-1',
+        invoiceId: 'OP-ABC12345',
+        amount: 100000,
+        currency: 'KZT',
+        status: PaymentStatus.PENDING,
+        refundedAmount: 0,
+      },
+    });
+  }
+
+  it('returns true when the order is still AWAITING_PAYMENT', async () => {
+    const { service } = withOrder(OrderStatus.AWAITING_PAYMENT);
+
+    await expect(service.isOrderPayable('OP-ABC12345')).resolves.toBe(true);
+  });
+
+  it('returns false when the order was CANCELLED (cron auto-cancel)', async () => {
+    const { service } = withOrder(OrderStatus.CANCELLED);
+
+    await expect(service.isOrderPayable('OP-ABC12345')).resolves.toBe(false);
+  });
+
+  it('returns false when the order is already PAID or PLACED (no second charge)', async () => {
+    for (const status of [OrderStatus.PAID, OrderStatus.PLACED]) {
+      const { service } = withOrder(status);
+      await expect(service.isOrderPayable('OP-ABC12345')).resolves.toBe(false);
+    }
+  });
+
+  it('fails open (returns true) and warns when no payment matches the invoice', async () => {
+    const { service } = makeDeps();
+    const warn = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+
+    await expect(service.isOrderPayable('OP-UNKNOWN')).resolves.toBe(true);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('fails open (returns true) and warns when the order is missing', async () => {
+    const { service, orderRepo } = withOrder(OrderStatus.AWAITING_PAYMENT);
+    orderRepo.findOne.mockResolvedValue(null);
+    const warn = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+
+    await expect(service.isOrderPayable('OP-ABC12345')).resolves.toBe(true);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('fails open (returns true) when a repo lookup throws (transient DB blip)', async () => {
+    const { service, paymentRepo } = withOrder(OrderStatus.AWAITING_PAYMENT);
+    paymentRepo.findOne.mockRejectedValue(new Error('db down'));
+    jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+
+    await expect(service.isOrderPayable('OP-ABC12345')).resolves.toBe(true);
+  });
+});
+
 describe('PaymentsService.refund', () => {
   function paid(refunded = 0) {
     return makeDeps({

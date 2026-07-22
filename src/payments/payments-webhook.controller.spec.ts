@@ -22,6 +22,7 @@ function makeController() {
     handlePayWebhook: jest.fn(async () => undefined),
     handleFailWebhook: jest.fn(async () => undefined),
     logEvent: jest.fn(async () => undefined),
+    isOrderPayable: jest.fn(async () => true),
   };
   const client = { apiSecret: SECRET };
   const controller = new PaymentsWebhookController(service as any, client as any);
@@ -73,13 +74,39 @@ describe('PaymentsWebhookController', () => {
     expect(res).toEqual({ code: 0 });
   });
 
-  it('approves a Check webhook with {code:0}', async () => {
+  it('approves a Check webhook with {code:0} for an order still awaiting payment', async () => {
     const { controller, service } = makeController();
+    service.isOrderPayable.mockResolvedValue(true);
     const { req, body } = makeReq(payBody);
 
     const res = await controller.check(req, body);
 
     expect(service.logEvent).toHaveBeenCalledWith('check', body, true);
+    expect(service.isOrderPayable).toHaveBeenCalledWith(body.InvoiceId);
+    expect(res).toEqual({ code: 0 });
+  });
+
+  // Money-safety: reject the pre-charge probe when the order is no longer payable
+  // (e.g. the 30-min cron already cancelled it) so the bank never captures the money.
+  it('rejects a Check with {code:13} when the order is no longer payable', async () => {
+    const { controller, service } = makeController();
+    service.isOrderPayable.mockResolvedValue(false);
+    const { req, body } = makeReq(payBody);
+
+    const res = await controller.check(req, body);
+
+    expect(service.logEvent).toHaveBeenCalledWith('check', body, true);
+    expect(res).toEqual({ code: 13 });
+  });
+
+  // Fail open: an unexpected error while judging payability must never block a legit charge.
+  it('still answers {code:0} from Check when isOrderPayable throws (fail open)', async () => {
+    const { controller, service } = makeController();
+    service.isOrderPayable.mockRejectedValue(new Error('db down'));
+    const { req, body } = makeReq(payBody);
+
+    const res = await controller.check(req, body);
+
     expect(res).toEqual({ code: 0 });
   });
 

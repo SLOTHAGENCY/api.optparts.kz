@@ -146,6 +146,55 @@ export class PaymentsService {
   }
 
   /**
+   * Pre-charge probe backing the TipTopPay `Check` webhook: may this payment proceed?
+   *
+   * Closes a narrow money-loss race. In payment-first checkout the order sits in
+   * AWAITING_PAYMENT while the widget is open; a cron auto-cancels orders left unpaid past
+   * 30 minutes. If the customer completes the card charge AFTER that cancel, `Pay` captures
+   * the money but placeWithSuppliers can no longer claim the cancelled order — money taken,
+   * nothing ordered, manual refund needed. TipTopPay asks `Check` BEFORE charging, so
+   * rejecting here stops the bank from ever taking the money.
+   *
+   * FAIL OPEN on every uncertainty. `init` always creates the payment before the widget
+   * opens, so a missing payment (or missing order) at Check time is anomalous — we log a
+   * warning and ACCEPT rather than block a possibly-legitimate charge on our own lookup gap.
+   * Likewise a transient DB error is swallowed and accepted. We return `false` ONLY when we
+   * positively confirmed the order is in a non-payable state (cancelled, or already
+   * paid/placed) — that is the one case worth blocking a charge for.
+   */
+  async isOrderPayable(invoiceId: string): Promise<boolean> {
+    try {
+      const payment = await this.paymentRepo.findOne({ where: { invoiceId } });
+      if (!payment) {
+        // Should not happen — init creates the payment first. Don't block on our own gap.
+        this.logger.warn(
+          `Check for unknown invoice ${invoiceId}: no payment row; accepting (fail open).`,
+        );
+        return true;
+      }
+
+      const order = await this.orderRepo.findOne({ where: { id: payment.orderId } });
+      if (!order) {
+        this.logger.warn(
+          `Check for invoice ${invoiceId}: order ${payment.orderId} not found; accepting (fail open).`,
+        );
+        return true;
+      }
+
+      // Payable only while still awaiting payment. Anything else — cancelled by the cron, or
+      // already paid/placed — must NOT let a late/second charge through.
+      return order.status === OrderStatus.AWAITING_PAYMENT;
+    } catch (err) {
+      // A transient DB blip must never block a legitimate charge — fail open.
+      this.logger.warn(
+        `Check payability lookup failed for invoice ${invoiceId}; accepting (fail open).`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      return true;
+    }
+  }
+
+  /**
    * Money is in. Mark the payment paid, then place the order with suppliers.
    *
    * IDEMPOTENCY — atomic guarded update, NOT check-then-act. TipTopPay retries webhooks

@@ -20,6 +20,11 @@ import { isValidHmac } from './tiptoppay.hmac';
 type RawRequest = Request & { rawBody?: Buffer };
 
 const OK = { code: 0 };
+// Reject a `Check` so the bank never charges. 13 is the CloudPayments engine's
+// "оплата данного заказа невозможна" (payment for this order is impossible) reject code;
+// TipTopPay runs on that engine. Confirm against the TipTopPay cabinet docs if TipTopPay
+// ever diverges from CloudPayments.
+const CHECK_REJECT = { code: 13 };
 
 /**
  * TipTopPay webhooks. Public by necessity — the only auth is the HMAC signature.
@@ -49,15 +54,26 @@ export class PaymentsWebhookController {
   @HttpCode(HttpStatus.OK)
   async check(@Req() req: RawRequest, @Body() body: TipTopPayWebhookBody) {
     await this.verify(req, 'check', body);
-    // Pre-authorization probe: we allow every payment that reached us with a valid
-    // signature. Availability was already re-checked at checkout. The service does not
-    // handle `check`, so journal the valid delivery here (complementary, not duplicative).
+    // The service does not handle `check`, so journal the valid delivery here
+    // (complementary, not duplicative).
     try {
       await this.payments.logEvent('check', body, true);
     } catch (err) {
       // An audit-log write failure must never fail the webhook — see class docblock.
       this.logger.warn(
         `Failed to journal check webhook for invoice ${body.InvoiceId}.`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
+    // Pre-charge probe: reject if the order is no longer payable (e.g. the 30-min cron
+    // already cancelled it) so the bank never captures money we'd have to refund by hand.
+    // Fail open on any unexpected error — a lookup blip must not block a legitimate charge.
+    try {
+      const payable = await this.payments.isOrderPayable(body.InvoiceId ?? '');
+      if (!payable) return CHECK_REJECT;
+    } catch (err) {
+      this.logger.warn(
+        `Failed to evaluate payability for check webhook (invoice ${body.InvoiceId}); accepting (fail open).`,
         err instanceof Error ? err.stack : String(err),
       );
     }
