@@ -68,7 +68,10 @@ export class AutotradeConnector implements SupplierConnector {
 
   private async call(method: string, params?: Record<string, unknown>): Promise<any> {
     const c = await resolveConfig(this.suppliers, this.code, this.envMap);
-    const url = c.API_URL || 'https://api2.autotrade.su/';
+    // The bare host serves the API portal's HTML news page — the JSON endpoint is `?json`
+    // (the SOAP one is `?soap_v2`). Pointing at the root makes every call return HTML, which
+    // this connector silently maps to zero offers.
+    const url = c.API_URL || 'https://api2.autotrade.su/?json';
     const payload: Record<string, unknown> = { auth_key: await this.authKey(c), method };
     if (params) payload.params = params;
     const body = 'data=' + JSON.stringify(payload);
